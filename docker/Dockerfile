@@ -1,0 +1,62 @@
+FROM ros:jazzy-ros-base
+
+ENV DEBIAN_FRONTEND=noninteractive
+SHELL ["/bin/bash", "-c"]
+
+# ---- System dependencies ------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-desktop \
+    ros-jazzy-ros-gz \
+    ros-jazzy-gz-ros2-control \
+    ros-jazzy-moveit \
+    build-essential cmake git curl wget \
+    python3-pip python3-venv python3-colcon-common-extensions \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- Python ML dependencies ---------------------------------
+RUN pip3 install --break-system-packages --no-cache-dir \
+    torch torchvision --index-url https://download.pytorch.org/whl/cu124 \
+    && pip3 install --break-system-packages --no-cache-dir \
+    stable-baselines3 \
+    gymnasium \
+    diffusers \
+    wandb \
+    matplotlib \
+    pandas \
+    pyyaml \
+    scipy
+
+# ---- Franka ROS 2 (build from source for Jazzy) -------------
+WORKDIR /opt/franka_ws/src
+
+RUN git clone https://github.com/frankarobotics/franka_description.git
+RUN git clone https://github.com/frankarobotics/franka_ros2.git -b jazzy
+
+WORKDIR /opt/franka_ws
+# Budujemy TYLKO franka_description (URDF/meshes) i franka_msgs.
+# franka_gazebo_bringup ciągnie franka_hardware → libfranka.
+# Integrację z Gazebo napiszemy sami w naszym workspace (franka_sim).
+RUN source /opt/ros/jazzy/setup.bash && \
+    apt-get update && rosdep update --rosdistro=jazzy && \
+    rosdep install --from-paths src --ignore-src -r -y --skip-keys="Franka libfranka" && \
+    rm -rf /var/lib/apt/lists/* && \
+    colcon build --symlink-install \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release \
+      --packages-select franka_description franka_msgs
+
+# ---- Workspace -----------------------------------------------
+# Na razie tylko tworzymy katalog — pakiety montujemy przez volumes.
+# Jak będziesz miał gotowe package.xml, odkomentuj poniższe:
+WORKDIR /ws
+# COPY src/ src/
+# RUN source /opt/ros/jazzy/setup.bash && \
+#     source /opt/franka_ws/install/setup.bash && \
+#     rosdep install --from-paths src --ignore-src -r -y && \
+#     colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# ---- Entrypoint ----------------------------------------------
+COPY docker/ros_entrypoint.sh /ros_entrypoint.sh
+RUN chmod +x /ros_entrypoint.sh
+
+ENTRYPOINT ["/ros_entrypoint.sh"]
+CMD ["bash"]
