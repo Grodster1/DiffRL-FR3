@@ -15,16 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ---- Python ML dependencies ---------------------------------
 RUN pip3 install --break-system-packages --no-cache-dir \
-    torch torchvision --index-url https://download.pytorch.org/whl/cu124 \
-    && pip3 install --break-system-packages --no-cache-dir \
-    stable-baselines3 \
-    gymnasium \
-    diffusers \
-    wandb \
-    matplotlib \
-    pandas \
-    pyyaml \
-    scipy
+    torch torchvision
+
+ RUN pip3 install --break-system-packages --no-cache-dir \
+    stable-baselines3 gymnasium diffusers wandb matplotlib pandas pyyaml scipy
 
 # ---- Franka ROS 2 (build from source for Jazzy) -------------
 WORKDIR /opt/franka_ws/src
@@ -44,9 +38,15 @@ RUN source /opt/ros/jazzy/setup.bash && \
       --cmake-args -DCMAKE_BUILD_TYPE=Release \
       --packages-select franka_description franka_msgs
 
-# ---- Workspace -----------------------------------------------
+# ---- Env + auto-source --------------------------------------
+ENV GZ_SIM_RESOURCE_PATH=/opt/franka_ws/install/franka_description/share
+RUN echo "source /opt/ros/jazzy/setup.bash" >> /root/.bashrc && \
+    echo "source /opt/franka_ws/install/setup.bash" >> /root/.bashrc && \
+    echo "[ -f /ws/install/setup.bash ] && source /ws/install/setup.bash" >> /root/.bashrc
+
+# ---- Workspace ----------------------------------------------
 # Na razie tylko tworzymy katalog — pakiety montujemy przez volumes.
-# Jak będziesz miał gotowe package.xml, odkomentuj poniższe:
+# Gdy package.xml gotowe, odkomentuj poniższe:
 WORKDIR /ws
 # COPY src/ src/
 # RUN source /opt/ros/jazzy/setup.bash && \
