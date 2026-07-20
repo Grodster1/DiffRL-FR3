@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="fr3">
+
+  <!-- 1. Bazowy opis — BEZ ros2_control:=true -->
+  <xacro:include filename="$(find franka_description)/robots/fr3/fr3.urdf.xacro"/>
+
+  <!-- 2. Makro na jeden staw ramienia -->
+  <xacro:macro name="fr3_arm_joint" params="name initial">
+    <joint name="${name}">
+      <command_interface name="position"/>       
+      <state_interface name="position">
+        <param name="initial_value">${initial}</param>
+      </state_interface>
+      <state_interface name="velocity"/>           
+    </joint>
+  </xacro:macro>
+
+  <!-- 3. Tag ros2_control -->
+  <ros2_control name="FR3GazeboSystem" type="system">
+    <hardware>
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>                    
+    </hardware>
+
+    <!-- 7 stawów -->
+    <xacro:fr3_arm_joint name="fr3_joint1" initial="0.0"/>
+    <xacro:fr3_arm_joint name="fr3_joint2" initial="${-pi/4}"/>
+    <xacro:fr3_arm_joint name="fr3_joint3" initial="0.0"/>
+    <xacro:fr3_arm_joint name="fr3_joint4" initial="${-3*pi/4}"/>
+    <xacro:fr3_arm_joint name="fr3_joint5" initial="0.0"/>
+    <xacro:fr3_arm_joint name="fr3_joint6" initial="${pi/2}"/>
+    <xacro:fr3_arm_joint name="fr3_joint7" initial="${pi/4}"/>
+
+
+    <!-- Chwytak: tylko joint1, joint2 mimikuje -->
+    <joint name="fr3_finger_joint1">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+  <!-- 4. Plugin menedżera + wskazanie na controllers.yaml -->
+  <gazebo>
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">      
+      <parameters>$(find franka_sim)/config/controllers.yaml</parameters>            
+    </plugin>
+  </gazebo>
+
+</robot>
