@@ -53,6 +53,86 @@ Metryki porównawcze: skuteczność zadania (success rate), efektywność próbk
 
 ---
 
+## Ustalenia projektowe — obserwacje, akcje, sterowanie (research 07.2026)
+
+### Przestrzeń obserwacji (wspólna dla SAC, PPO i DP)
+
+Wariant **state-based** (oracle state z Gazebo), wektor ~20–30 wymiarów:
+
+| Składnik | Wymiar | Uwagi |
+|---|---|---|
+| Pozycja końcówki (EE) | 3 | w bazie robota |
+| Orientacja EE | 4 lub 6 | kwaternion albo reprezentacja 6D (Zhou 2019) — spójnie u obu metod |
+| Rozwarcie chwytaka | 1 | |
+| Pozycja obiektu (kostka) | 3 | rozważyć **względnie**: wektor EE→obiekt (jak panda-gym) |
+| Pozycja celu | 3 | rozważyć względnie: wektor obiekt→cel |
+| (opcjonalnie) kąty stawów | 7 | |
+| (opcjonalnie) prędkości stawów | 7 | |
+
+- Normalizacja wszystkiego do [-1, 1] per wymiar — jedna konwencja w obu pipeline'ach (DP: statystyki datasetu; SB3: `VecNormalize` lub ręcznie).
+- DP przyjmuje historię obserwacji (T_o = 2), SAC/PPO pojedynczy stan — przy pełnym stanie markowskim nie psuje porównania, odnotować w pracy.
+- Wariant vision-based jawnie odrzucony (koszt obliczeniowy, poza harmonogramem) → future work.
+
+### Przestrzeń akcji (wspólna dla SAC, PPO, DP i skryptowanego eksperta)
+
+**4D delta-EE, orientacja zamrożona (chwytak pionowo w dół):**
+
+```
+a = (Δx, Δy, Δz, g) ∈ [-1, 1]⁴
+```
+
+- Skalowanie: max **5 cm/krok** przy polityce **10–20 Hz** (≈ max 1 m/s EE) — limit bezpieczeństwa + identyczna dynamika dla wszystkich metod.
+- Chwytak `g`: ciągłe wyjście sieci, interpretacja **binarna z progiem** (wzór: FurnitureBench), żeby polityka nie trzepotała chwytakiem.
+- Uzasadnienie delta-EE: task space = akcje w przestrzeni zadania, wyższa efektywność próbkowa (Matas 2018, Martín-Martín 2019, Zhu 2020); position control > velocity control dla DP (Chi 2023).
+- **Opcja zapasowa: delta joint position (7D)** — zero IK, brak problemu osobliwości; literatura pokazuje że bywa lepsza (Effective Tuning Strategies, arXiv:2410.01220 — delta-EE często narusza ograniczenia IK).
+
+### Tor sterowania
+
+```
+Polityka (ΔEE @ 10–20 Hz)
+  → clip akcji + clip do workspace box (np. x∈[0.3,0.7], y∈[-0.3,0.3], z∈[0.02,0.5])
+  → IK: damped least-squares na jakobianie (KDL/pinocchio), q̇ = Jᵀ(JJᵀ+λ²I)⁻¹·Δx
+  → joint_trajectory_controller (jednopunktowa trajektoria, time_from_start ≈ dt)
+  → gz_ros2_control (interfejs pozycyjny) → Gazebo
+  → obserwacje wracają do polityki
+```
+
+- IK: własne DLS zamiast MoveIt Servo (deterministyczne, testowalne, bez węzłów MoveIt w pętli treningu). Przy zamrożonej orientacji tylko wiersze pozycyjne jakobianu.
+- Porażka IK (osobliwość/limit stawu) = no-op + ewentualna mała kara; **logować częstość** (ciekawa statystyka porównawcza DP vs RL).
+- JTC zamiast forward_position_controller — interpolacja między komendami = gładszy ruch, istotne przy metryce smoothness.
+- **Zasada uczciwości porównania:** identyczny action space, identyczny kontroler i konfiguracja dla RL, DP **i eksperta zbierającego demonstracje** (ekspert nagrywa sekwencje (obs, ΔEE, g) wykonywane tym samym torem — NIE surowe plany MoveIt).
+
+### Chwytak — ostrzeżenia praktyczne
+
+1. Mimic joints w gz_ros2_control bywają problematyczne — przetestować wcześnie.
+2. Fizyka chwytu w Gazebo kapryśna (kostka wystrzeliwuje/ślizga się) — tiunować `mu1`/`mu2`, `kp`, `kd`, `min_depth`, masę kostki. **Plan B: `DetachableJoint`** (przyspawanie obiektu po wykryciu chwytu) — uproszczenie stosowane w literaturze, opisać jawnie w rozdziale o środowisku.
+
+### Reward i RL — ustalenia
+
+- Sparse reward dla czystego SAC/PPO nierozwiązywalny w budżecie → **shaped reward** dla obu algorytmów: kara odległości EE–obiekt + bonus za chwyt + kara odległości obiekt–cel + bonus sukcesu + mała kara ‖a‖².
+- Kara ‖a‖² w nagrodzie RL: tak (standard, cytat panda-gym/Fetch). **Żadnych filtrów dolnoprzepustowych na akcjach** u żadnej metody — smoothness raportowana z surowych trajektorii.
+- SAC+HER możliwy jako eksperyment dodatkowy (tylko off-policy; SB3 `HerReplayBuffer`). PPO nie wspiera HER.
+- Oczekiwanie: SAC 5–10× efektywniejszy próbkowo niż PPO; PPO może nie zdążyć na L2/L3 — to też jest wynik (metryka efektywności próbkowej).
+- Curriculum: trening L2 startujący z wag L1 — element metodologii.
+
+### Diffusion Policy — ustalenia
+
+- Wariant **CNN (U-Net 1D + FiLM)**, nie Transformer (łatwiejszy tuning wg autorów).
+- Trening: DDPM ~100 kroków; inferencja: **DDIM ~10 kroków** (inaczej nie zmieści się w częstotliwości sterowania). Latencja inferencji DP vs MLP = dodatkowa metryka.
+- Chunking: T_o = 2, T_p = 16, T_a = 8 (wartości z papieru, do ablacji).
+- **Korekta terminologii w pracy:** oryginalny DP trenowany per-task od zera na 50–200 demonstracjach — nie "finetuning pretrenowanego modelu" (to domena VLA typu Octo/π₀). U nas: trening od zera na własnym datasecie.
+- Demonstracje: **scripted expert** (sekwencja waypointów przez IK / MoveIt), cel: 100–200 udanych demo na L2, zapis w formacie zgodnym z wrapperem Gym. Uwaga: scripted expert = demonstracje unimodalne → osłabia atut multimodalności DP, uczciwie przedyskutować (→ Mandlekar 2021).
+
+### Ewaluacja i eksperymenty — ustalenia
+
+- Protokół: ≥50 epizodów testowych × ≥3 seedy treningowe, średnia ± odchylenie, identyczne ziarna randomizacji sceny dla wszystkich metod.
+- Smoothness: całka z jerku / suma kwadratów przyspieszeń stawów + długość ścieżki EE.
+- Efektywność próbkowa — dwie osie: kroki środowiska (RL) vs koszt demonstracji (DP); raportować obie.
+- **Hipoteza na L3 (najciekawszy potencjalny wynik):** chunking DP (otwarta pętla przez T_a kroków) vs reaktywność RL co krok — przewaga DP z L1/L2 może stopnieć/odwrócić się przy perturbacjach; ablacja T_a vs smoothness.
+- Gazebo ↔ Gym: krokowanie symulacji przez serwis `/world/<name>/control` (`multi_step`) albo pauza+odpauzowanie — bez tego trening niepowtarzalny i wolny. Argument za Gazebo mimo to: integracja ROS 2 + realizm stacku sterowania (MuJoCo/Isaac = standard społeczności RL, odnotować).
+
+---
+
 ## Struktura repozytorium
 
 Repo: `~/Inżynierka/DiffRL-Panda/`
@@ -141,7 +221,10 @@ Podział na pakiety ROS 2:
 1. Naprawić `GZ_SIM_RESOURCE_PATH` w entrypoincie → potwierdzić że meshe FR3 ładują się w Gazebo
 2. Napisać minimalny launch file w pakiecie `franka_sim` (spawn FR3 + Gazebo + ros2_control)
 3. Zbudować scenę Pick & Place w Gazebo (stół + kostka SDF)
-4. Napisać wrapper Gymnasium ↔ ROS 2 (observation/action space)
+4. Napisać wrapper Gymnasium ↔ ROS 2 — observation/action space **wg sekcji „Ustalenia projektowe"** (state-based, 4D delta-EE)
+5. Zaimplementować DLS-IK + clip do workspace (moduł testowalny jednostkowo)
+6. Skonfigurować `controllers.yaml`: JTC dla ramienia + kontroler chwytaka; przetestować mimic joints
+7. Rozwiązać krokowanie Gazebo z pętli Gym (serwis `/world/<name>/control`, `multi_step`)
 
 ---
 
@@ -155,6 +238,12 @@ Podział na pakiety ROS 2:
 | Tylko `franka_description` + `franka_msgs` ze źródeł | Reszta repo (gripper, hardware, gazebo_bringup) ciągnie `libfranka` — zbędne w symulacji |
 | Integracja Gazebo pisana od zera w `franka_sim` | `franka_gazebo_bringup` z oficjalnego repo wymaga `franka_hardware` → `libfranka` |
 | Gazebo headless | Wayland na hoście uniemożliwia GUI forwarding; trening RL i tak będzie headless |
+| Obserwacje state-based (oracle) | Uczciwe porównanie, mieści się w harmonogramie i mocy GPU; vision → future work |
+| Akcja: 4D delta-EE, orientacja zamrożona | Task space = efektywność próbkowa; position > velocity dla DP (Chi); prostota; plan B: delta joint position |
+| Własne DLS-IK zamiast MoveIt Servo | Deterministyczne, testowalne, bez węzłów MoveIt w pętli treningu |
+| JTC (position) jako kontroler | Interpolacja = gładkość; identyczny dla RL, DP i eksperta |
+| Shaped reward + kara ‖a‖², bez filtrów akcji | Sparse nierozwiązywalny w budżecie; smoothness z surowych trajektorii |
+| DP: wariant CNN, trening od zera, DDIM w inferencji | Łatwiejszy tuning; oryginalny DP jest per-task, nie pretrenowany |
 
 ---
 
@@ -270,6 +359,14 @@ def generate_launch_description():
 3. Schulman et al. (2017) — Proximal Policy Optimization Algorithms
 4. Ho et al. (2020) — Denoising Diffusion Probabilistic Models (NeurIPS 2020)
 5. Mandlekar et al. (2021) — What Matters in Learning from Offline Human Demonstrations (CoRL 2021)
+6. Gallouédec et al. (2021) — panda-gym: Open-source goal-conditioned environments for robotic learning — *najbliższy setup: Panda + P&P + SAC*
+7. Andrychowicz et al. (2017) — Hindsight Experience Replay (NeurIPS 2017)
+8. Zhou et al. (2019) — On the Continuity of Rotation Representations in Neural Networks (CVPR 2019) — *reprezentacja 6D orientacji*
+9. Heo et al. (2023) — FurnitureBench (RSS 2023) — *wzorzec przestrzeni akcji: delta-EE + chwytak z progiem, OSC 10 Hz → 1 kHz*
+10. Ren et al. (2024) — DPPO: Diffusion Policy Policy Optimization (ICLR 2025, arXiv:2409.00588) — *do related work: finetuning DP przez policy gradient, pomost RL↔DP*
+11. Wang et al. (2022) — Diffusion Policies as an Expressive Policy Class for Offline RL (Diffusion-QL, ICLR 2023) — *related work*
+12. arXiv:2410.01220 — Effective Tuning Strategies for Generalist Robot Manipulation Policies — *delta joint position vs delta-EE, argument za planem B*
+13. arXiv:2602.23408 — Demystifying Action Space Design for Robotic Manipulation Policies — *systematyczne badanie wyboru przestrzeni akcji*
 
 ---
 
