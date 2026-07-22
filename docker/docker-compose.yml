@@ -10,11 +10,9 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
-      # Montowanie źródeł — live reload bez przebudowy obrazu
       - ../src:/ws/src
       - ../evaluation:/ws/evaluation
       - ../data:/ws/data
-      # GUI forwarding
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
     network_mode: host
     stdin_open: true
