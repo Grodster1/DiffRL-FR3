@@ -1,18 +1,18 @@
 controller_manager:
-  ros_parameters:
+  ros__parameters:
     update_rate: 1000
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
     fr3_arm_controller:
-      type: joint_state_controller/JointTrajectoryController
+      type: joint_trajectory_controller/JointTrajectoryController
 
     fr3_gripper_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
 fr3_arm_controller:
-  ros_parameters:
+  ros__parameters:
     joints:
       - fr3_joint1
       - fr3_joint2
@@ -26,7 +26,7 @@ fr3_arm_controller:
     state_interfaces:
       - position
       - velocity
-      
+
 fr3_gripper_controller:
   ros__parameters:
     joints:
@@ -36,7 +36,3 @@ fr3_gripper_controller:
     state_interfaces:
       - position
       - velocity
-
-    
-
-    
