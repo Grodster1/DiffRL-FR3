@@ -4,7 +4,7 @@ project(franka_sim)
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY urdf config #launch worlds models
+  DIRECTORY urdf config launch #worlds #models
   DESTINATION share/${PROJECT_NAME}
 )
 
