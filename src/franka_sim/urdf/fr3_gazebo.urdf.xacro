@@ -31,7 +31,7 @@
     <xacro:fr3_arm_joint name="fr3_joint7" initial="${pi/4}"/>
 
 
-    <!-- Chwytak: tylko joint1, joint2 mimikuje -->
+    <!-- Chwytak: tylko joint1, joint2 mimic -->
     <joint name="fr3_finger_joint1">
       <command_interface name="position"/>
       <state_interface name="position">
