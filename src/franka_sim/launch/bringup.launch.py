@@ -15,12 +15,15 @@ def generate_launch_description():
     xacro_file = os.path.join(pkg, 'urdf', 'fr3_gazebo.urdf.xacro')
     robot_description = xacro.process_file(xacro_file).toxml()
     
+    #--- WORLD ---
+    world_file = os.path.join(pkg, 'worlds', 'fr3_world.sdf')
+    
     #--- Gazebo ---
     gz_sim_pkg = get_package_share_directory('ros_gz_sim')
     gz_launch_file = os.path.join(gz_sim_pkg, 'launch', 'gz_sim.launch.py')
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(gz_launch_file),
-        launch_arguments={'gz_args':'-r -s empty.sdf'}.items()
+        launch_arguments={'gz_args':f'-r -s {world_file}'}.items()
     )
     
     #--- Robot State Publisher ---
