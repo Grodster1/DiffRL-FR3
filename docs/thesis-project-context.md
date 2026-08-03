@@ -210,21 +210,19 @@ Podział na pakiety ROS 2:
    ```
    To powinno być dodane do `ros_entrypoint.sh` na stałe.
 
-2. **GUI Gazebo na Waylandzie** — host ma Wayland, forwarding X11 do kontenera nie działa. Na razie pracujemy headless (`gz sim -s`). Opcje:
-   - XWayland (nie testowany)
-   - Gazebo nativo na hoście + transport do kontenera
+2. **GUI Gazebo na Waylandzie** — host ma Wayland. Działa po `xhost +local:docker`. Na razie pracujemy headless (`gz sim -s`). Opcje:
    - Praca headless + RViz do wizualizacji
 
 3. **`docker exec` nie sourcuje entrypointa** — przy `docker exec -it <kontener> bash` trzeba ręcznie: `source /opt/ros/jazzy/setup.bash && source /opt/franka_ws/install/setup.bash`. Rozwiązanie: dodać sourcowanie do `/root/.bashrc` w Dockerfile.
 
 ### Następne kroki
-1. Naprawić `GZ_SIM_RESOURCE_PATH` w entrypoincie → potwierdzić że meshe FR3 ładują się w Gazebo
-2. Napisać minimalny launch file w pakiecie `franka_sim` (spawn FR3 + Gazebo + ros2_control)
-3. Zbudować scenę Pick & Place w Gazebo (stół + kostka SDF)
-4. Napisać wrapper Gymnasium ↔ ROS 2 — observation/action space **wg sekcji „Ustalenia projektowe"** (state-based, 4D delta-EE)
-5. Zaimplementować DLS-IK + clip do workspace (moduł testowalny jednostkowo)
-6. Skonfigurować `controllers.yaml`: JTC dla ramienia + kontroler chwytaka; przetestować mimic joints
-7. Rozwiązać krokowanie Gazebo z pętli Gym (serwis `/world/<name>/control`, `multi_step`)
+1. Naprawić `GZ_SIM_RESOURCE_PATH` w entrypoincie → potwierdzić że meshe FR3 ładują się w Gazebo - Done
+2. Napisać minimalny launch file w pakiecie `franka_sim` (spawn FR3 + Gazebo + ros2_control) - Done
+3. Zbudować scenę Pick & Place w Gazebo (stół + kostka SDF) - WIP
+4. Napisać wrapper Gymnasium ↔ ROS 2 — observation/action space **wg sekcji „Ustalenia projektowe"** (state-based, 4D delta-EE) - TODO
+5. Zaimplementować DLS-IK + clip do workspace (moduł testowalny jednostkowo) - TODO
+6. Skonfigurować `controllers.yaml`: JTC dla ramienia + kontroler chwytaka; przetestować mimic joints - TODO
+7. Rozwiązać krokowanie Gazebo z pętli Gym (serwis `/world/<name>/control`, `multi_step`) - TODO
 
 ---
 
