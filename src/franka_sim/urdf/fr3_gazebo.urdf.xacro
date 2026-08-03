@@ -31,8 +31,15 @@
     <xacro:fr3_arm_joint name="fr3_joint7" initial="${pi/4}"/>
 
 
-    <!-- Chwytak: tylko joint1, joint2 mimic -->
+    <!-- Chwytak: jawne sterowanie oboma palcami (Opcja A — mimic niewspierany w DART) -->
     <joint name="fr3_finger_joint1">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="fr3_finger_joint2">
       <command_interface name="position"/>
       <state_interface name="position">
         <param name="initial_value">0.0</param>
@@ -43,8 +50,8 @@
 
   <!-- 4. Plugin menedżera + wskazanie na controllers.yaml -->
   <gazebo>
-    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">      
-      <parameters>$(find franka_sim)/config/controllers.yaml</parameters>            
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find franka_sim)/config/controllers.yaml</parameters>
     </plugin>
   </gazebo>
 
