@@ -1,4 +1,5 @@
 import os
+import xml.etree.ElementTree as ET
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import RegisterEventHandler, IncludeLaunchDescription
@@ -8,13 +9,26 @@ from launch_ros.actions import Node
 import xacro
 
 
+def strip_finger_mimic(urdf_xml):
+    """franka_hand.xacro hardkoduje <mimic> na fr3_finger_joint2 (brak parametru
+    do wyłączenia) — ros2_control odmawia command_interface na mimic joint.
+    Opcja A: jawne sterowanie oboma palcami, więc usuwamy <mimic> po stronie
+    wygenerowanego URDF, zamiast patchować franka_description."""
+    root = ET.fromstring(urdf_xml)
+    for joint in root.findall("joint"):
+        if joint.get("name") == "fr3_finger_joint2":
+            for mimic in joint.findall("mimic"):
+                joint.remove(mimic)
+    return ET.tostring(root, encoding="unicode")
+
+
 def generate_launch_description():
     pkg = get_package_share_directory('franka_sim')
-    
+
     #--- URDF ---
     xacro_file = os.path.join(pkg, 'urdf', 'fr3_gazebo.urdf.xacro')
-    robot_description = xacro.process_file(xacro_file).toxml()
-    
+    robot_description = strip_finger_mimic(xacro.process_file(xacro_file).toxml())
+
     #--- WORLD ---
     world_file = os.path.join(pkg, 'worlds', 'fr3_world.sdf')
     
