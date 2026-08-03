@@ -147,7 +147,7 @@ export GZ_SIM_RESOURCE_PATH=/opt/franka_ws/install/franka_description/share:$GZ_
 
 ## ros2_control 
 
-Kontrolery: `joint_state_broadcaster`, `fr3_arm_controller` (JTC, 7 stawów), `fr3_gripper_controller` (JTC, `fr3_finger_joint1`).
+Kontrolery: `joint_state_broadcaster`, `fr3_arm_controller` (JTC, 7 stawów), `fr3_gripper_controller` (JTC, `fr3_finger_joint1` + `fr3_finger_joint2`, sterowane jawnie).
 
 ```bash
 ros2 control list_controllers            # stan
@@ -158,12 +158,13 @@ ros2 topic pub --once /fr3_arm_controller/joint_trajectory trajectory_msgs/msg/J
   "{joint_names: [fr3_joint1,fr3_joint2,fr3_joint3,fr3_joint4,fr3_joint5,fr3_joint6,fr3_joint7],
     points: [{positions: [0.0,-0.785,0.0,-2.356,0.0,1.571,0.785], time_from_start: {sec: 2}}]}"
 
-# Test chwytaka (0.0 = zamknięty, 0.04 = otwarty)
+# Test chwytaka (0.0 = zamknięty, 0.04 = otwarty) — oba palce jawnie w jednej komendzie
 ros2 topic pub --once /fr3_gripper_controller/joint_trajectory trajectory_msgs/msg/JointTrajectory \
-  "{joint_names: [fr3_finger_joint1], points: [{positions: [0.04], time_from_start: {sec: 1}}]}"
+  "{joint_names: [fr3_finger_joint1, fr3_finger_joint2], points: [{positions: [0.04, 0.04], time_from_start: {sec: 1}}]}"
 ```
 
-> **Ryzyko #1 (mimic) — potwierdzone:** silnik DART w Harmonic NIE wspiera mimic constraints. `fr3_finger_joint2` nie podąża za joint1 → chwytak asymetryczny. Plan: jawne sterowanie oboma palcami ALBO `DetachableJoint`.
+> **Ryzyko #1 (mimic) — rozwiązane (Opcja A):** silnik DART w Harmonic NIE wspiera mimic constraints. `DetachableJoint` przetestowany i odrzucony — działa poprawnie w izolacji, ale nie respektuje ruchu stawów aktuowanych przez `gz_ros2_control` (position command). Finalnie: jawne sterowanie oboma palcami — `fr3_finger_joint2` dostał własny `command_interface` w `ros2_control` (usunięto `<mimic>` z URDF post-processingiem w `bringup.launch.py`, bo `franka_hand.xacro` nie ma parametru do jego wyłączenia). Szczegóły w `thesis-project-context.md`.
+> **Uwaga:** po dłuższej serii testów w tym samym kontenerze zaobserwowano, że jeden ze stawów przestał reagować na komendy pozycji mimo poprawnej konfiguracji (`ros2 control list_hardware_interfaces` pokazywał `claimed`) — naprawił to `docker compose restart sim`. Jeśli komenda `joint_trajectory` nie daje efektu mimo aktywnego kontrolera, restart kontenera jest pierwszym krokiem diagnostyki.
 
 ---
 

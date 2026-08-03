@@ -102,10 +102,31 @@ Polityka (ΔEE @ 10–20 Hz)
 - JTC zamiast forward_position_controller — interpolacja między komendami = gładszy ruch, istotne przy metryce smoothness.
 - **Zasada uczciwości porównania:** identyczny action space, identyczny kontroler i konfiguracja dla RL, DP **i eksperta zbierającego demonstracje** (ekspert nagrywa sekwencje (obs, ΔEE, g) wykonywane tym samym torem — NIE surowe plany MoveIt).
 
-### Chwytak — ostrzeżenia praktyczne
+### Chwytak — ostrzeżenia praktyczne (decyzja podjęta)
 
-1. Mimic joints w gz_ros2_control bywają problematyczne — przetestować wcześnie.
-2. Fizyka chwytu w Gazebo kapryśna (kostka wystrzeliwuje/ślizga się) — tiunować `mu1`/`mu2`, `kp`, `kd`, `min_depth`, masę kostki. **Plan B: `DetachableJoint`** (przyspawanie obiektu po wykryciu chwytu) — uproszczenie stosowane w literaturze, opisać jawnie w rozdziale o środowisku.
+1. Mimic joints w gz_ros2_control/DART **niewspierane** (potwierdzone) — `fr3_finger_joint2` nie podąża za `fr3_finger_joint1`.
+2. **`DetachableJoint` przetestowany i odrzucony jako niekompatybilny z `gz_ros2_control`
+   (gz-sim 8.11.0, ROS Jazzy vendor).** Mechanizm sam w sobie działa poprawnie
+   (zweryfikowane na izolowanym minimalnym świecie: default-attach, `detach`,
+   re-`attach` via topic — wszystko 1:1 zgodne z oczekiwaniami). Problem: gdy
+   `parent_link` znajduje się na łańcuchu stawów aktuowanych przez
+   `gz_ros2_control` (position command interface), rzeczywisty ruch ramienia NIE
+   jest respektowany przez sztywne ograniczenie `DetachableJoint` — przyczepiony
+   obiekt nie podąża za ruchem (zweryfikowane na `fr3_link1` i `fr3_link7`;
+   działa tylko przy sztywnym teleportowaniu całego modelu, co nie ma zastosowania
+   przy realnym sterowaniu). Wniosek: `gz_ros2_control`'s pozycyjne komendy
+   najpewniej nie przechodzą przez pełny solver dynamiki zgodny z dodatkowymi
+   (closed-loop) ograniczeniami.
+3. **Ostateczna decyzja: Opcja A** — jawne sterowanie oboma palcami
+   (`fr3_finger_joint2` jako pełnoprawny `command_interface`/`state_interface` w
+   `ros2_control`, dopisany do `fr3_gripper_controller` w `controllers.yaml`).
+   Wymagało dodatkowo usunięcia znacznika URDF `<mimic>` z `fr3_finger_joint2`
+   (hardkodowany w `franka_hand.xacro`, brak parametru do wyłączenia) —
+   `ros2_control` odmawia `command_interface` na mimic joint. Rozwiązane przez
+   post-processing wygenerowanego URDF w `bringup.launch.py`
+   (`strip_finger_mimic`, `xml.etree.ElementTree`) zamiast patchowania
+   `franka_description`. Fizyka chwytu (tarcie, kontakt) do dalszego tiuningu
+   `mu`/`mu2`/`kp`/`kd`/`min_depth` na kostce w `fr3_world.sdf`.
 
 ### Reward i RL — ustalenia
 
