@@ -154,7 +154,7 @@
 
     <model name="cube">
       <pose>0.5 0 0.425 0 0 0</pose>
-      <link name="link">
+      <link name="cube_link">
         <inertial>
           <mass>0.05</mass>
           <inertia>
@@ -173,6 +173,13 @@
                 <mu2>1.0</mu2>  <!--do strojenia-->
               </ode>
             </friction>
+            <contact>
+              <ode>
+                <kp>1e5</kp>       <!--do strojenia-->
+                <kd>10</kd>        <!--do strojenia-->
+                <min_depth>0.001</min_depth>
+              </ode>
+            </contact>
           </surface>
         </collision>
         <visual name="visual">
