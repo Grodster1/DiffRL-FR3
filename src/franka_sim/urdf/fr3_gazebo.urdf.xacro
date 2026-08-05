@@ -4,6 +4,14 @@
   <!-- 1. Bazowy opis — BEZ ros2_control:=true -->
   <xacro:include filename="$(find franka_description)/robots/fr3/fr3.urdf.xacro"/>
 
+  <!-- 1a. Przyczepienie robota do podłoża -->
+  <link name="world"/>
+  <joint name="world_to_base" type="fixed">
+    <parent link="world"/>
+    <child link="base"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
   <!-- 2. Makro na jeden staw ramienia -->
   <xacro:macro name="fr3_arm_joint" params="name initial">
     <joint name="${name}">
