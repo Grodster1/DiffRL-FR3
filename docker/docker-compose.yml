@@ -14,6 +14,15 @@ services:
       - ../evaluation:/ws/evaluation
       - ../data:/ws/data
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    devices:                                    
+      - /dev/dri:/dev/dri
     network_mode: host
     stdin_open: true
     tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:                             
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, graphics, display, compute, utility]
