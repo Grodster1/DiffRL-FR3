@@ -17,8 +17,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip3 install --break-system-packages --no-cache-dir \
     torch torchvision
 
- RUN pip3 install --break-system-packages --no-cache-dir \
+RUN pip3 install --break-system-packages --no-cache-dir \
     stable-baselines3 gymnasium diffusers wandb matplotlib pandas pyyaml scipy
+
+RUN pip3 install --break-system-packages --no-cache-dir "setuptools<81" \
+    && python3 -c "import pkg_resources; print('pkg_resources OK')"
 
 # ---- Franka ROS 2 (build from source for Jazzy) -------------
 WORKDIR /opt/franka_ws/src
@@ -27,9 +30,6 @@ RUN git clone https://github.com/frankarobotics/franka_description.git
 RUN git clone https://github.com/frankarobotics/franka_ros2.git -b jazzy
 
 WORKDIR /opt/franka_ws
-# Budujemy TYLKO franka_description (URDF/meshes) i franka_msgs.
-# franka_gazebo_bringup ciągnie franka_hardware → libfranka.
-# Integrację z Gazebo napiszemy sami w naszym workspace (franka_sim).
 RUN source /opt/ros/jazzy/setup.bash && \
     apt-get update && rosdep update --rosdistro=jazzy && \
     rosdep install --from-paths src --ignore-src -r -y --skip-keys="Franka libfranka" && \
