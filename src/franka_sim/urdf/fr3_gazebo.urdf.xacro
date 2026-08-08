@@ -39,7 +39,7 @@
     <xacro:fr3_arm_joint name="fr3_joint7" initial="${pi/4}"/>
 
 
-    <!-- Chwytak: jawne sterowanie oboma palcami (Opcja A — mimic niewspierany w DART) -->
+    <!-- Chwytak: jawne sterowanie oboma palcami -->
     <joint name="fr3_finger_joint1">
       <command_interface name="position"/>
       <state_interface name="position">
