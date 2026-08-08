@@ -1,0 +1,38 @@
+# --- colcon / ROS 2 ---
+build/
+install/
+log/
+.colcon_install_layout
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# --- Dane: demonstracje, checkpointy, wyniki ---
+data/*
+!data/.gitkeep
+evaluation/results/
+
+# --- Tracking / logi treningu ---
+wandb/
+runs/
+*.tfevents.*
+
+# --- Checkpointy ---
+*.pt
+*.pth
+*.ckpt
+
+# --- Edytor / system ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# --- Claude Code ---
+.claude/settings.local.json
