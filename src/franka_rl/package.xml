@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>franka_rl</name>
+  <version>0.0.1</version>
+  <description>Środowisko Gymnasium dla FR3 (Pick and Place) + DLS-IK; wspólna warstwa dla SAC/PPO, Diffusion Policy i skryptowanego eksperta (praca inż.)</description>
+  <maintainer email="wiktorwszedybyl1@gmail.com">Wiktor</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>trajectory_msgs</exec_depend>
+  <exec_depend>tf2_msgs</exec_depend>
+  <exec_depend>ros_gz_interfaces</exec_depend>
+  <exec_depend>pinocchio</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>franka_sim</exec_depend>
+
+  <!-- gymnasium, numpy, torch: instalowane przez pip w Dockerfile, brak kluczy rosdep -->
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
