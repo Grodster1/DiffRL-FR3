@@ -3,11 +3,10 @@ import numpy as np
 from pathlib import Path
 
 class FrankaKinematics:
-    def __init__(self, urdf_str: str, ee_frame: str = "fr3_hand_tcp"):
-        """ Class init """
-        
-        # No buildModelFromXML in documentation, it exists in the source code "help(buildModelFromXML())"
-        self.model = pin.buildModelFromXML(urdf_str)
+    def __init__(self, urdf_path: str, ee_frame: str = "fr3_hand_tcp"):
+        """ urdf_path — path to a rendered URDF file (e.g. /tmp/fr3.urdf from xacro) """
+
+        self.model = pin.buildModelFromUrdf(urdf_path)
         self.data = self.model.createData()
         
         self.frame_id = self.model.getFrameId(ee_frame)
@@ -19,7 +18,6 @@ class FrankaKinematics:
         for name in arm_joint_names:
             jid = self.model.getJointId(name)
             idx_q = self.model.joints[jid].idx_q
-            print(f"Joint ID q: {idx_q}\n")
             self.arm_q_indices.append(idx_q)
         
         self.arm_q_indices = np.array(self.arm_q_indices)
@@ -36,9 +34,10 @@ class FrankaKinematics:
         q = self._full_q(q_arm)
         pin.framesForwardKinematics(self.model, self.data, q)
         placement = self.data.oMf[self.frame_id]
-        p = placement.translation
-        R = placement.rotation
-        
+        # copy — .translation/.rotation are views into data.oMf, overwritten by the next fk()
+        p = placement.translation.copy()
+        R = placement.rotation.copy()
+
         return p, R
     
     def jacobian(self, q_arm: np.ndarray):
@@ -48,9 +47,3 @@ class FrankaKinematics:
         J = J_full[:, self.arm_q_indices]
         
         return J
-    
-    
-        
-        
-            
-        
