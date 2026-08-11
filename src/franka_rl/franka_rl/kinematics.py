@@ -34,7 +34,7 @@ class FrankaKinematics:
         q = self._full_q(q_arm)
         pin.framesForwardKinematics(self.model, self.data, q)
         placement = self.data.oMf[self.frame_id]
-        # copy — .translation/.rotation are views into data.oMf, overwritten by the next fk()
+
         p = placement.translation.copy()
         R = placement.rotation.copy()
 
