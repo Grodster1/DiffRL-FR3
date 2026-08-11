@@ -18,10 +18,11 @@ def dls_step(J, err6, _lambda = 0.05):
     
     return dq
     
-def clip_to_joint_limits(q, model):
+def clip_to_joint_limits(q, kin):
     """ Clipping joint position to available model's range """    
-    
-    return np.clip(q, model.lowerPositionLimit, model.upperPositionLimit)
+    lower = kin.model.lowerPositionLimit[kin.arm_q_indices]
+    upper = kin.model.upperPositionLimit[kin.arm_q_indices]
+    return np.clip(q, lower, upper)
 
 def clip_to_workspace(p_des, box):
     """ Clipping position to box workspace.
@@ -36,7 +37,7 @@ def solve_ik(kin, q_init, p_des, R_des, _lambda = 0.05, tol = 1e-3, max_iters = 
     q = q_init.copy()
     
     for i in range(max_iters):
-        p, R = kin.fk()
+        p, R = kin.fk(q)
         err6 = pose_error(p, R, p_des, R_des)
         
         if np.linalg.norm(err6) < tol:
@@ -48,6 +49,6 @@ def solve_ik(kin, q_init, p_des, R_des, _lambda = 0.05, tol = 1e-3, max_iters = 
         if np.linalg.norm(dq) > dq_max:
             return q, {"success": False, "iters": i, "final_error": np.linalg.norm(err6), "reason": "no-op"}
             
-        q = clip_to_joint_limits(q + dq, kin.model)
+        q = clip_to_joint_limits(q + dq, kin)
         
     return q, {"success": False, "iters": max_iters, "final_error": np.linalg.norm(err6), "reason": "max_iters"}
