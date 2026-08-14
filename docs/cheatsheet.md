@@ -1,6 +1,8 @@
 # Cheatsheet — DiffRL-Panda
 
-> **Środowisko działa.** FR3 spawnuje się w Gazebo, trzy kontrolery `active`, robot stoi w pozie ready. GUI (RViz / Gazebo) działa przez XWayland. Poniżej aktualne komendy.
+> Ten plik trzyma **jak** — komendy i krótkie uwagi operacyjne (jedna linia: co zrobić, żeby
+> komenda zadziałała). **Dlaczego** — decyzje projektowe, fakty o modelu, uzasadnienia, stan
+> implementacji — idzie do `docs/thesis-project-context.md`. Nie dopisuj tu akapitów tła.
 
 ---
 
@@ -11,7 +13,7 @@ cd ~/Inżynierka/DiffRL-Panda/docker
 
 # Build obrazu
 docker compose build
-docker compose build --no-cache         
+docker compose build --no-cache
 
 # Uruchomienie kontenera
 docker compose up -d                     # ZALECANE: stabilna nazwa 'franka_sim'
@@ -19,18 +21,56 @@ docker compose run sim                   # UWAGA: losowa nazwa (docker-sim-run-x
 
 # Drugi terminal w działającym kontenerze
 docker ps                                # sprawdź nazwę
-docker exec -it franka_sim bash          # .bashrc sam sourcuje ROS + franka_ws 
+docker exec -it franka_sim bash          # .bashrc sam sourcuje ROS + franka_ws
+
+# Restart (pierwszy krok, gdy staw przestał reagować mimo aktywnego kontrolera)
+docker compose restart sim
 
 # Zatrzymanie / sprzątanie
 docker compose down                      # ubij serwis
 docker system prune -f                   # usuń zbędne warstwy/kontenery
-docker image prune -a -f                 # usuń nieużywane obrazy 
+docker image prune -a -f                 # usuń nieużywane obrazy
 docker compose logs -f sim               # logi serwisu w tle
 ```
 
-> **Uwaga o nazwie:** `docker exec franka_sim ...` działa tylko po `docker compose up -d` (nazwa z `container_name`). Po `docker compose run` nazwa jest losowa — sprawdź `docker ps`.
+> `docker exec franka_sim ...` działa tylko po `docker compose up -d`. Po `docker compose run`
+> nazwa jest losowa — sprawdź `docker ps`.
 
-### Fallback — ręczne sourcowanie (gdyby .bashrc nie zadziałał)
+---
+
+## Sourcowanie
+
+**Sesja interaktywna** — nic nie robisz, `.bashrc` sourcuje wszystkie trzy warstwy:
+```bash
+docker exec -it franka_sim bash
+source /ws/install/setup.bash            # tylko po pierwszym buildzie / dodaniu nowego pakietu
+```
+
+**Pojedyncza komenda z hosta** — `docker exec franka_sim <cmd>` omija `.bashrc` (powłoka
+nieinteraktywna), więc zawsze owijaj w `bash -c` z sourcowaniem:
+```bash
+docker exec franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /opt/franka_ws/install/setup.bash && source /ws/install/setup.bash; <KOMENDA>"
+```
+
+Alias na hoście (`~/.bashrc`) — `-l -i` daje powłokę logowania i interaktywną, więc `.bashrc`
+kontenera wykonuje się sam:
+```bash
+alias fx='docker exec -it franka_sim bash -lic'
+
+fx 'ros2 control list_controllers'
+fx 'python3 -c "import pinocchio; print(pinocchio.__version__)"'
+fx 'cd /ws && colcon build --packages-select franka_rl'
+```
+
+| Source | Co odblokowuje |
+|---|---|
+| `/opt/ros/jazzy/setup.bash` | `ros2`, `colcon`, `rclpy`, **`pinocchio`**, `xacro`, mosty `ros_gz` |
+| `/opt/franka_ws/install/setup.bash` | `franka_description`, `franka_msgs` (bazowy xacro FR3) |
+| `/ws/install/setup.bash` | `franka_sim`, `franka_rl` — `ros2 launch`, `$(find franka_sim)` |
+
+> `GZ_SIM_RESOURCE_PATH` jest `ENV` w Dockerfile — meshe działają bez sourcowania czegokolwiek.
+
+Fallback, gdyby `.bashrc` nie zadziałał:
 ```bash
 source /opt/ros/jazzy/setup.bash
 source /opt/franka_ws/install/setup.bash
@@ -39,26 +79,21 @@ source /opt/franka_ws/install/setup.bash
 
 ---
 
-## GUI na Waylandzie — DZIAŁA (przez XWayland)
-
-Mit "GUI nie działa na Waylandzie" był fałszywy — brakowało tylko `xhost`.
+## GUI (przez XWayland)
 
 ```bash
-# NA HOŚCIE 
+# NA HOŚCIE — nie przeżywa restartu, powtórz po każdym
 xhost +local:docker
 
 # Test że X11 z kontenera przechodzi
 docker exec -it franka_sim bash -c "apt-get install -y x11-apps && xeyes"
 
-# RViz 
+# RViz — Fixed Frame = 'base', RobotModel → Description Topic = /robot_description
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; rviz2"
-#   W RViz: Fixed Frame = 'base', RobotModel → Description Topic = /robot_description
 
-# Gazebo GUI (pełna scena z fizyką — klient dołącza do headless serwera z bringupa)
+# Gazebo GUI (klient dołącza do headless serwera z bringupa)
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash; gz sim -g"
 ```
-
-> GUI = **podgląd/debug**, nie tryb treningu. Trening zawsze headless (renderowanie przy milionach kroków RL to strata). Jak GUI nagle przestaje działać → najpierw `xhost +local:docker` na hoście.
 
 ---
 
@@ -69,16 +104,21 @@ cd /ws
 
 # Build
 colcon build --packages-select franka_sim
-colcon build --packages-up-to franka_rl    
-source install/setup.bash                 
+colcon build --packages-select franka_rl
+colcon build --packages-up-to franka_rl
+source install/setup.bash
 
-# Czyszczenie 
+# Czyszczenie
 rm -rf build install log
 
 colcon list                                 # lista pakietów
 ```
 
-> **Ważne:** `config/`, `launch/`, `urdf/`, `worlds/`, `models/` instalują się do `share/` przez `install(DIRECTORY ...)` w `CMakeLists.txt`. `ros2 launch` i `$(find franka_sim)` szukają w `share/`, NIE w `src/`. Po edycji tych plików → **rebuild**. Dodajesz nowy katalog → dopisz go do `install()`.
+> Po edycji `config/`, `launch/`, `urdf/`, `worlds/`, `models/` → **rebuild** (instalują się do
+> `share/`). Nowy katalog → dopisz do `install(DIRECTORY ...)` w `CMakeLists.txt`.
+
+> Nie używaj `--symlink-install` dla `ament_python` — nie działa (cicha degradacja do kopii).
+> Testy `franka_rl` i tak lecą z `src/` dzięki `conftest.py`.
 
 ---
 
@@ -94,8 +134,28 @@ ros2 launch /ws/src/franka_sim/launch/bringup.launch.py
 
 Weryfikacja po starcie (drugi terminal):
 ```bash
-ros2 control list_controllers            
-ros2 topic echo /joint_states --once     
+ros2 control list_controllers
+ros2 topic echo /joint_states --once
+```
+
+### Ręczne sterowanie stawami (suwaki rqt)
+
+```bash
+# Build
+docker exec franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /opt/franka_ws/install/setup.bash && cd /ws && colcon build && source install/setup.bash"
+
+# Instalacja rqt (raz na kontener)
+docker exec franka_sim bash -c "apt-get update && apt-get install -y ros-jazzy-rqt-joint-trajectory-controller"
+
+# Terminal 1 — bringup
+docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; ros2 launch franka_sim bringup.launch.py"
+
+# Terminal 2 — GUI
+docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash; gz sim -g"
+
+# Terminal 3 — suwaki
+docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; ros2 run rqt_joint_trajectory_controller rqt_joint_trajectory_controller"
+```
 
 ---
 
@@ -105,26 +165,26 @@ ros2 topic echo /joint_states --once
 # YAML
 python3 -c "import yaml; yaml.safe_load(open('src/franka_sim/config/controllers.yaml')); print('YAML OK')"
 
-# xacro → URDF 
+# xacro → URDF
 ros2 run xacro xacro src/franka_sim/urdf/fr3_gazebo.urdf.xacro > /tmp/test.urdf && echo OK
-grep -A4 'joint name="fr3_joint1"' /tmp/test.urdf  
+grep -A4 'joint name="fr3_joint1"' /tmp/test.urdf
 ```
 
 ---
 
-## URDF / xacro — nasz wrapper
+## URDF / xacro
 
 ```bash
-# Mój plik
+# Nasz wrapper
 FR3=/ws/src/franka_sim/urdf/fr3_gazebo.urdf.xacro
 ros2 run xacro xacro $FR3 > /tmp/fr3.urdf
 
-# Bazowy opis Franki 
+# Bazowy opis Franki
 BASE=/opt/franka_ws/src/franka_description/robots/fr3/fr3.urdf.xacro
 ros2 run xacro xacro $BASE > /tmp/fr3_base.urdf
 ```
 
-> **NIE używać** flagi `ros2_control:=true` na bazowym xacro — generuje `<transmission>` w stylu ROS 1, niekompatybilne z `gz_ros2_control`. Dlatego mamy własny wrapper `fr3_gazebo.urdf.xacro` (position-only command, bug #343; `GazeboSimSystem` + `GazeboSimROS2ControlPlugin`).
+> **NIE używać** flagi `ros2_control:=true` na bazowym xacro — dlatego mamy własny wrapper.
 
 ---
 
@@ -134,26 +194,26 @@ ros2 run xacro xacro $BASE > /tmp/fr3_base.urdf
 gz sim -s -r empty.sdf                   # headless server (-s), run od razu (-r)
 gz sim -g                                # klient GUI (dołącza do serwera)
 
-# Introspekcja Gazebo 
 gz topic -l                              # lista topików gz
 gz model --list                          # modele w scenie
+gz model -m fr3 -p                        # poza modelu (musi zostać 0 0 0 — baza przykręcona)
 gz service -l                            # serwisy gz
 
-# Resource path 
 export GZ_SIM_RESOURCE_PATH=/opt/franka_ws/install/franka_description/share:$GZ_SIM_RESOURCE_PATH
 ```
 
 ---
 
-## ros2_control 
+## ros2_control
 
-Kontrolery: `joint_state_broadcaster`, `fr3_arm_controller` (JTC, 7 stawów), `fr3_gripper_controller` (JTC, `fr3_finger_joint1` + `fr3_finger_joint2`, sterowane jawnie).
+Kontrolery: `joint_state_broadcaster`, `fr3_arm_controller` (JTC, 7 stawów),
+`fr3_gripper_controller` (JTC, `fr3_finger_joint1` + `fr3_finger_joint2`, sterowane jawnie).
 
 ```bash
 ros2 control list_controllers            # stan
 ros2 control list_hardware_interfaces    # dostępne command/state interfaces
 
-# Test ruchu ramienia 
+# Test ruchu ramienia
 ros2 topic pub --once /fr3_arm_controller/joint_trajectory trajectory_msgs/msg/JointTrajectory \
   "{joint_names: [fr3_joint1,fr3_joint2,fr3_joint3,fr3_joint4,fr3_joint5,fr3_joint6,fr3_joint7],
     points: [{positions: [0.0,-0.785,0.0,-2.356,0.0,1.571,0.785], time_from_start: {sec: 2}}]}"
@@ -163,8 +223,37 @@ ros2 topic pub --once /fr3_gripper_controller/joint_trajectory trajectory_msgs/m
   "{joint_names: [fr3_finger_joint1, fr3_finger_joint2], points: [{positions: [0.04, 0.04], time_from_start: {sec: 1}}]}"
 ```
 
-> **Ryzyko #1 (mimic) — rozwiązane (Opcja A):** silnik DART w Harmonic NIE wspiera mimic constraints. `DetachableJoint` przetestowany i odrzucony — działa poprawnie w izolacji, ale nie respektuje ruchu stawów aktuowanych przez `gz_ros2_control` (position command). Finalnie: jawne sterowanie oboma palcami — `fr3_finger_joint2` dostał własny `command_interface` w `ros2_control` (usunięto `<mimic>` z URDF post-processingiem w `bringup.launch.py`, bo `franka_hand.xacro` nie ma parametru do jego wyłączenia). Szczegóły w `thesis-project-context.md`.
-> **Uwaga:** po dłuższej serii testów w tym samym kontenerze zaobserwowano, że jeden ze stawów przestał reagować na komendy pozycji mimo poprawnej konfiguracji (`ros2 control list_hardware_interfaces` pokazywał `claimed`) — naprawił to `docker compose restart sim`. Jeśli komenda `joint_trajectory` nie daje efektu mimo aktywnego kontrolera, restart kontenera jest pierwszym krokiem diagnostyki.
+---
+
+## `franka_rl` — Gym + DLS-IK
+
+```bash
+# Build
+docker exec franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /opt/franka_ws/install/setup.bash; cd /ws && colcon build --packages-select franka_rl"
+
+# Sanity check, że ROS widzi pakiet
+docker exec franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; ros2 pkg list | grep franka_rl"
+```
+
+### Testy jednostkowe — bez rebuildu i bez Gazebo
+
+```bash
+docker exec franka_sim bash -c "source /opt/ros/jazzy/setup.bash; cd /ws && python3 -m pytest src/franka_rl/test -v"
+
+# pojedynczy test
+docker exec franka_sim bash -c "source /opt/ros/jazzy/setup.bash; cd /ws && python3 -m pytest src/franka_rl/test/test_ik.py::{name} -v"
+
+# sprzątanie śmieci po pytest (root-owe na hoście — kasuj z kontenera)
+docker exec franka_sim bash -c "rm -rf /ws/src/franka_rl/.pytest_cache /ws/src/franka_rl/**/__pycache__"
+```
+
+> Wystarczy `source /opt/ros/jazzy/setup.bash` (stamtąd idzie `pinocchio`); `/ws/install` nie jest
+> potrzebny. Działa dzięki pustemu `src/franka_rl/conftest.py` — **nie kasuj tego pliku**.
+
+```bash
+# Wersja pinocchio
+docker exec franka_sim bash -c "source /opt/ros/jazzy/setup.bash; python3 -c 'import pinocchio; print(pinocchio.__version__)'"
+```
 
 ---
 
@@ -203,9 +292,8 @@ python3 src/franka_diffusion/eval.py --checkpoint data/checkpoints/dp_best.pt
 ```bash
 nvidia-smi                               # stan GPU (host)
 python3 -c "import torch; print(torch.cuda.is_available(), torch.version.cuda)"
+pip install torch torchvision            # zawsze z PyPI, NIE z download.pytorch.org
 ```
-
-> **torch instaluj z PyPI** (`pip install torch torchvision`), NIE z `--index-url https://download.pytorch.org/whl/cu124` — sieć blokuje CDN PyTorcha (SSLV3_ALERT_HANDSHAKE_FAILURE). PyPI daje build CUDA.
 
 ---
 
@@ -242,9 +330,9 @@ git status
 git add -p
 git commit -m "..."
 git check-ignore data/checkpoints/sac_best.zip   # czy data/ ignorowane
-```
 
-> **Uprawnienia:** colcon w kontenerze działa jako root → pliki `root`-owe na hoście. Jak edytor rzuca `EACCES`: `sudo chown -R $USER:$USER src/franka_sim/`. Twórz nowe pliki z hosta, żeby tego uniknąć.
+sudo chown -R $USER:$USER src/franka_sim/        # gdy edytor rzuca EACCES (pliki root-owe z colcona)
+```
 
 ---
 
@@ -258,7 +346,9 @@ git check-ignore data/checkpoints/sac_best.zip   # czy data/ ignorowane
 | controller_manager crash "value before ros__parameters" | YAML: taby zamiast spacji, albo złe wcięcia. Waliduj `yaml.safe_load` |
 | launch: "too many values to unpack" | `launch_arguments={...}.items()` — brakuje `.items()` |
 | Gazebo crash przy starcie kontrolerów | Rozjazd URDF↔YAML (interface not available) albo błąd w controllers.yaml |
-| Chwytak: rusza się tylko jeden palec | Mimic niewspierany (DART) — to znane, plan B |
+| Staw nie reaguje mimo `claimed` w `list_hardware_interfaces` | `docker compose restart sim` |
+| Kostka wyślizguje się z chwytaka | `mu`/`mu2` po **obu** stronach pary (kostka + `fr3_leftfinger`/`fr3_rightfinger`); `kp`/`kd`/`min_depth` DART ignoruje |
+| Robot przewraca się / odjeżdża przy kontakcie | Brak `<link name="world"/>` + fixed jointa `world_to_base`. Sprawdź `gz model -m fr3 -p` |
 | torch: SSLV3_ALERT_HANDSHAKE_FAILURE | Instaluj z PyPI, nie z download.pytorch.org |
 | GUI nie wyskakuje | `xhost +local:docker` na hoście (nie przeżywa restartu) |
 | RViz: "frame [map] does not exist" | Fixed Frame → `base`; RobotModel Description Topic → `/robot_description` |
@@ -266,3 +356,4 @@ git check-ignore data/checkpoints/sac_best.zip   # czy data/ ignorowane
 | `/clock` nie dochodzi do ROS | ros_gz_bridge dla `/clock` w launchu; sim z `-r` |
 | Trening nie widzi GPU | `torch.cuda.is_available()`; `nvidia-smi` na hoście |
 | colcon sypie się po refaktorze | `rm -rf build install log` i rebuild |
+| pytest nie widzi zmian w `src/` | Skasowany `src/franka_rl/conftest.py` — przywróć (pusty plik) |
