@@ -82,6 +82,18 @@ def generate_launch_description():
         output='screen',
     )
     
+    # --- Cube Pose Bridge ---
+    # Poza kostki z pluginu PosePublisher wpietego w model `cube` (worlds/fr3_world.sdf).
+    # NIE mostkuj /world/fr3_world/dynamic_pose/info -> TFMessage: Gazebo wysyla tam pozy
+    # bez `header.data`, skad most czyta frame_id/child_frame_id, wiec nazwy encji sa puste
+    # i kostke trzeba by rozpoznawac po indeksie w tablicy (cicho psuje sie przy edycji sceny).
+    cube_pose_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        arguments=['/model/cube/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry'],
+        output='screen',
+    )
+    
     
     #--- Sequence Spawn ---
     delay_jsb = RegisterEventHandler(
@@ -100,6 +112,7 @@ def generate_launch_description():
     
     return LaunchDescription([gazebo,
                               clock_bridge,
+                              cube_pose_bridge,
                               rsp,
                               robot_spawn,
                               delay_jsb,
