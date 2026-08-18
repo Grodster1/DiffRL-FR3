@@ -67,7 +67,7 @@ class SimInterface(Node):
         
     def reserve_t(self, dt):
         start = self._sim_time
-        while self._sim_time is not None:
+        while self._sim_time is None:
             rclpy.spin_once(self, timeout_sec=0.01)
             
         start = self._sim_time
