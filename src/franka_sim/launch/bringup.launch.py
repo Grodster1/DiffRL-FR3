@@ -1,5 +1,5 @@
 import os
-import xml.etree.ElementTree as ET
+from franka_rl.franka_rl.urdf_utils import strip_finger_mimic 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import RegisterEventHandler, IncludeLaunchDescription
@@ -7,20 +7,6 @@ from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 import xacro
-
-
-def strip_finger_mimic(urdf_xml):
-    """franka_hand.xacro hardkoduje <mimic> na fr3_finger_joint2 (brak parametru
-    do wyłączenia) — ros2_control odmawia command_interface na mimic joint.
-    Opcja A: jawne sterowanie oboma palcami, więc usuwamy <mimic> po stronie
-    wygenerowanego URDF, zamiast patchować franka_description."""
-    root = ET.fromstring(urdf_xml)
-    for joint in root.findall("joint"):
-        if joint.get("name") == "fr3_finger_joint2":
-            for mimic in joint.findall("mimic"):
-                joint.remove(mimic)
-    return ET.tostring(root, encoding="unicode")
-
 
 def generate_launch_description():
     pkg = get_package_share_directory('franka_sim')
@@ -84,9 +70,7 @@ def generate_launch_description():
     
     # --- Cube Pose Bridge ---
     # Poza kostki z pluginu PosePublisher wpietego w model `cube` (worlds/fr3_world.sdf).
-    # NIE mostkuj /world/fr3_world/dynamic_pose/info -> TFMessage: Gazebo wysyla tam pozy
-    # bez `header.data`, skad most czyta frame_id/child_frame_id, wiec nazwy encji sa puste
-    # i kostke trzeba by rozpoznawac po indeksie w tablicy (cicho psuje sie przy edycji sceny).
+
     cube_pose_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
