@@ -14,12 +14,13 @@ class SimInterface(Node):
     def __init__(self):
         super().__init__("sim_interface")
         
-        self.set_parameters([rclpy.parameter.Parameter("use_sim_time", rclpy.parameter.Type.BOOL, True)])
+        self.set_parameters([rclpy.parameter.Parameter("use_sim_time", rclpy.parameter.Parameter.Type.BOOL, True)])
         
         self._q_arm = None
         self._dq_arm = None
         self._cube_pos = None
         self._sim_time = None
+        self._gripper_opening = None
         
         
         self._joint_states_sub = self.create_subscription(JointState, "/joint_states", self._on_joint_states_callback, 10)
