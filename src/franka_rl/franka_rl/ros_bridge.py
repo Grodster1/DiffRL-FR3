@@ -1,3 +1,4 @@
+import time
 import rclpy
 import numpy as np
 from rclpy.node import Node
@@ -5,7 +6,10 @@ from sensor_msgs.msg import JointState
 from nav_msgs.msg import Odometry
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from rosgraph_msgs.msg import Clock
+from ros_gz_interfaces.msg import Entity
+from ros_gz_interfaces.srv import SetEntityPose
 from builtin_interfaces.msg import Duration
+from geometry_msgs.msg import Pose, Point, Quaternion
 
 ARM_JOINTS = [f"fr3_joint{i}" for i in range (1, 8)]
 GRIPPER_JOINTS = ["fr3_finger_joint1", "fr3_finger_joint2"]
@@ -26,6 +30,10 @@ class SimInterface(Node):
         self._joint_states_sub = self.create_subscription(JointState, "/joint_states", self._on_joint_states_callback, 10)
         self._cube_odom_sub = self.create_subscription(Odometry, "/model/cube/odometry", self._on_cube_callback, 10)
         self._clock_sub = self.create_subscription(Clock, "/clock", self._on_clock_callback, 10)
+        
+        self.cube_cli = self.create_client(SetEntityPose, "/world/fr3_world/set_pose")
+        self.cube_request = SetEntityPose.Request()
+        self.cube_request.entity = Entity(name="cube", type=Entity.MODEL)
         
         self._arm_pub = self.create_publisher(JointTrajectory, "/fr3_arm_controller/joint_trajectory", 10)
         self._gripper_pub = self.create_publisher(JointTrajectory, "/fr3_gripper_controller/joint_trajectory", 10)
@@ -66,6 +74,26 @@ class SimInterface(Node):
         msg.points = [traj_point]
         self._gripper_pub.publish(msg)
         
+    def set_cube_pose(self, cube_pos, timeout=5.0):
+        if not self.cube_cli.wait_for_service(timeout_sec=timeout):
+            raise RuntimeError("Service /world/fr3_world/set_pose unavailable")
+
+        self.cube_request.pose = Pose(
+            position=Point(x=cube_pos[0], y=cube_pos[1], z=cube_pos[2]),
+            orientation=Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+        )
+        future = self.cube_cli.call_async(self.cube_request)
+
+        deadline = time.monotonic() + timeout
+        while not future.done():
+            if time.monotonic() > deadline:
+                future.cancel()
+                raise RuntimeError("SetEntityPose: no response")
+            rclpy.spin_once(self, timeout_sec=0.01)
+
+        if not future.result().success:
+            raise RuntimeError(f"SetEntityPose returned success=False for {cube_pos}")
+
     def reserve_t(self, dt):
         start = self._sim_time
         while self._sim_time is None:
