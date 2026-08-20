@@ -103,6 +103,20 @@ class SimInterface(Node):
         while (self._sim_time - start) < dt:
             rclpy.spin_once(self, timeout_sec=0.01) 
         
+    def wait_for_state(self, timeout=10.0):
+        deadline = time.monotonic() + timeout
+
+        while True:
+            state = self.get_state()
+            if all(value is not None for value in state.values()):
+                return state
+
+            if time.monotonic() > deadline:
+                missing = [key for key, value in state.items() if value is None]
+                raise RuntimeError(f"Timeout waiting for state, missing: {missing}")
+
+            rclpy.spin_once(self, timeout_sec=0.01)
+
     def get_state(self):
         return {
             "gripper_opening": self._gripper_opening,
