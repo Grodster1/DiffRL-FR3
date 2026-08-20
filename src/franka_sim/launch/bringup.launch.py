@@ -1,5 +1,5 @@
 import os
-from franka_rl.franka_rl.urdf_utils import strip_finger_mimic 
+from franka_rl.urdf_utils import strip_finger_mimic
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import RegisterEventHandler, IncludeLaunchDescription
@@ -25,6 +25,9 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(gz_launch_file),
         launch_arguments={'gz_args':f'-r -s {world_file}'}.items()
     )
+    
+    #--- Bridge Yaml Path ---
+    bridge_yaml_path = os.path.join(pkg, 'config', 'bridge.yaml')
     
     #--- Robot State Publisher ---
     rsp = Node(
@@ -64,6 +67,7 @@ def generate_launch_description():
     clock_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
+        name='clock_bridge',
         arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'],
         output='screen',
     )
@@ -74,10 +78,18 @@ def generate_launch_description():
     cube_pose_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
+        name='cube_pose_bridge',
         arguments=['/model/cube/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry'],
         output='screen',
     )
     
+    set_cube_pose_bridge = Node(
+        package='ros_gz_bridge',
+        executable ='parameter_bridge',
+        name='set_cube_pose_bridge',
+        parameters=[{'config_file': bridge_yaml_path}],
+        output='screen'
+    )
     
     #--- Sequence Spawn ---
     delay_jsb = RegisterEventHandler(
@@ -97,6 +109,7 @@ def generate_launch_description():
     return LaunchDescription([gazebo,
                               clock_bridge,
                               cube_pose_bridge,
+                              set_cube_pose_bridge,
                               rsp,
                               robot_spawn,
                               delay_jsb,
