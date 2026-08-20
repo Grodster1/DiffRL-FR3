@@ -218,6 +218,9 @@ ros2 topic pub --once /fr3_arm_controller/joint_trajectory trajectory_msgs/msg/J
   "{joint_names: [fr3_joint1,fr3_joint2,fr3_joint3,fr3_joint4,fr3_joint5,fr3_joint6,fr3_joint7],
     points: [{positions: [0.0,-0.785,0.0,-2.356,0.0,1.571,0.785], time_from_start: {sec: 2}}]}"
 
+# Błąd nadążania JTC (wykrywanie kolizji: trwały rozjazd komenda↔stan, próg ~0.1 rad)
+ros2 topic echo /fr3_arm_controller/controller_state --field error.positions
+
 # Test chwytaka (0.0 = zamknięty, 0.04 = otwarty) — oba palce jawnie w jednej komendzie
 ros2 topic pub --once /fr3_gripper_controller/joint_trajectory trajectory_msgs/msg/JointTrajectory \
   "{joint_names: [fr3_finger_joint1, fr3_finger_joint2], points: [{positions: [0.04, 0.04], time_from_start: {sec: 1}}]}"
@@ -354,6 +357,7 @@ sudo chown -R $USER:$USER src/franka_sim/        # gdy edytor rzuca EACCES (plik
 | RViz: "frame [map] does not exist" | Fixed Frame → `base`; RobotModel Description Topic → `/robot_description` |
 | Robot niewidoczny w RViz | RobotModel → Description Topic = `/robot_description` |
 | `/clock` nie dochodzi do ROS | ros_gz_bridge dla `/clock` w launchu; sim z `-r` |
+| `parameter_bridge` loguje „Creating ROS->GZ service bridge" co sekundę | Most serwisu podany przez `parameters={'config_file':...}` — przełóż na `arguments=['<svc>@<ros_srv>@<gz_req>@<gz_rep>']` (wyciek ~390 MB/h) |
 | Trening nie widzi GPU | `torch.cuda.is_available()`; `nvidia-smi` na hoście |
 | colcon sypie się po refaktorze | `rm -rf build install log` i rebuild |
 | pytest nie widzi zmian w `src/` | Skasowany `src/franka_rl/conftest.py` — przywróć (pusty plik) |

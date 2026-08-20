@@ -91,7 +91,7 @@ a = (Δx, Δy, Δz, g) ∈ [-1, 1]⁴
 
 ```
 Polityka (ΔEE @ 10–20 Hz)
-  → clip akcji + clip do workspace box (np. x∈[0.3,0.7], y∈[-0.3,0.3], z∈[0.02,0.5])
+  → clip akcji + clip do workspace box (x∈[-0.15,0.7], y∈[-0.6,0.6], z∈[0.42,0.65])
   → IK: damped least-squares na jakobianie (pinocchio), q̇ = Jᵀ(JJᵀ+λ²I)⁻¹·err
   → joint_trajectory_controller (jednopunktowa trajektoria, time_from_start ≈ dt)
   → gz_ros2_control (interfejs pozycyjny) → Gazebo
@@ -211,7 +211,7 @@ Polityka (ΔEE @ 10–20 Hz)
 - **Wdrożenie krokowania: etapowe (decyzja 08.2026).** Faza 1 — symulacja leci swobodnie,
   wrapper odmierza `dt` z `/clock` (`use_sim_time=True`); pozwala szybko domknąć end-to-end
   i testować IK oraz reward. Faza 2 — podmiana na `multi_step` przez `ros_gz_interfaces/srv/ControlWorld`.
-  Warunek projektowy: cały kontakt z czasem schowany za **jedną** metodą `advance(dt)` w warstwie
+  Warunek projektowy: cały kontakt z czasem schowany za **jedną** metodą `reserve_t(dt)` w warstwie
   ROS, więc faza 2 nie dotyka `gym_env`. Ryzyko fazy 2 do rozstrzygnięcia w implementacji: wyścig
   między publikacją trajektorii a krokiem świata (komenda musi dojść do JTC zanim ruszymy sim).
   Miarą, kiedy faza 2 jest konieczna, jest test determinizmu: `reset(seed=42)` dwa razy → ta sama
@@ -303,10 +303,84 @@ Podział na pakiety ROS 2:
 - Pliki `__pycache__/`/`.pytest_cache/` tworzone przez `docker exec` są root-owe na hoście
   (ta sama przyczyna co przy colconie) — kasować z kontenera, nie `sudo` z hosta.
 
+### Most serwisu `set_pose` — CLI, nie `config_file` (zmierzone 08.2026)
+
+`ros_gz_bridge` 1.0.22 ma **dwie różne ścieżki kodu** do mostkowania serwisów i wybór między nimi
+nie jest kosmetyczny:
+
+- `parameters=[{'config_file': ...}]` → klasa `RosGzBridge`, która trzyma `heartbeat_timer_` (1 Hz)
+  wołający `spin()`. Każdy tick ponownie woła `add_service_bridge` i **dopisuje** nowy obiekt do
+  `std::vector<rclcpp::ServiceBase::SharedPtr> services_` — nic nie sprawdza, czy most już istnieje.
+  Objaw widoczny: log `Creating ROS->GZ service bridge` co dokładnie 1.000 s.
+  **Zmierzony skutek: RSS rośnie liniowo ~108 KB/s (1.06 MB / 10 s), czyli ~390 MB/h.** Przy
+  wielogodzinnym treningu SAC to realny wyciek, nie hałas w logu.
+- `arguments=['<svc>@<ros_srv_type>@<gz_req>@<gz_rep>']` → zwykły `main` w `parameter_bridge`, bez
+  heartbeatu. Log leci raz, RSS płaski (zmierzone: 51036 KB stałe przez 50 s).
+
+Używamy wariantu CLI. `ros2 run ros_gz_bridge parameter_bridge --help` potwierdza wsparcie dla
+serwisów w CLI — mit, że serwisy wymagają YAML-a, jest fałszywy. Zweryfikowane funkcjonalnie:
+`ros2 service call .../set_pose` → `success=True`, kostka faktycznie przeskakuje `(0.5,0)→(0.45,0.15)`
+potwierdzone na `/model/cube/odometry`. `config/bridge.yaml` jest po tej zmianie martwy.
+
 ### Gazebo Harmonic
 - Headless działa: `gz sim -s -r <world>`
 - **GUI działa** — mit „Wayland to uniemożliwia" okazał się fałszywy, brakowało wyłącznie `xhost +local:docker` na hoście (XWayland). Klient `gz sim -g` dołącza do headless serwera z bringupa. GUI = podgląd/debug, trening zawsze headless.
-- Scena `fr3_world.sdf`: ground plane + stół (0.6×1.0×0.4, static) + kostka 5 cm (masa 0.05 kg, `mu=1.0`)
+- Scena `fr3_world.sdf`: ground plane + stół główny (0.6×0.8×0.4, static, pose `0.5 0 0.2`) +
+  dwa stoły docelowe (0.25×0.25×0.4, static, pose `0 ±0.525 0.2`) + kostka 5 cm (masa 0.05 kg, `mu=1.0`)
+
+### Cel zadania — dwa boczne stoły zamiast punktu w powietrzu (decyzja 08.2026)
+
+Cel = środek blatu jednego z dwóch bocznych stołów: `(0, ±0.525, 0.425)`. Stoły stoją po lewej i
+prawej stronie robota (90° w Z względem stołu głównego), robot jest w środku trójkąta.
+
+- **Odrzucone: cel w powietrzu** (Fetch / panda-gym). Formalnie działa — sukces sprawdza się w
+  chwili, gdy robot trzyma kostkę w tolerancji, epizod się kończy. Ale to zadanie „przynieś obiekt
+  do pozy", nie „odłóż"; słabo broni się w opisie ewaluacji pracy o pick & place.
+- **Odrzucone: podest wyższy od blatu.** Miał wymuszać podniesienie pionowym stopniem. Zbędny —
+  szczelina daje to samo, a każdy centymetr wysokości to ryzyko kolizji dla DLS-IK, który nie
+  unika przeszkód.
+- **Wybrane: szczelina zamiast wysokości.** Boczne stoły są w `x∈[-0.125, 0.125]`, główny zaczyna
+  się na `x=0.2` → przerwa ~7.5 cm nad podłogą przy kostce 5 cm. Popychanie nie ma rozwiązania:
+  kostka spada, zamiast wjechać na stół docelowy. Degeneracja „pick & place → push" znika bez
+  żadnych sztuczek w reward. Sukces jest sprawdzalny w stanie ustalonym (kostka *leży*, `‖v‖≈0`),
+  co jest mocniejszą definicją niż migawka w powietrzu.
+- **Dwa stoły, nie jeden** — wymusza ruch w obie strony (joint1 ±90°), daje symetryczne pokrycie
+  workspace i bimodalny rozkład celów (atut dla DP, uczciwy test dla SAC). Jeden stół pozwalałby
+  nauczyć się stałej trajektorii, co osłabiałoby wymowę L2.
+- Rozkład celów wg poziomu: **L1** cel stały (lewy), **L2/L3** losowo 50/50 lewy/prawy.
+  Rozkład celów jest dwupunktowy, ale wektor `cube→goal` w obserwacji pozostaje ciągły, bo
+  losowana jest pozycja startowa kostki (`x∈[0.4,0.6]`, `y∈[-0.2,0.2]`).
+- Jitter pozycji na blacie docelowym świadomie pominięty: stół 0.25 m przy kostce 5 cm daje mały
+  zapas od krawędzi, a bimodalny cel już realizuje sens L2.
+
+**Konsekwencje do zweryfikowania w symulacji (nie policzone, tylko oszacowane):**
+- **Zamrożona orientacja przy 90° — ZWERYFIKOWANE, zapas duży (08.2026).** Test kinematyczny
+  (DLS-IK, marsz po 5 cm z `q_init` z poprzedniego kroku — tak jak zrobi to polityka):
+  oba cele `(0, ±0.525, 0.425)` osiągalne z błędem **0.50 mm**, cała strefa spawnu kostki
+  (9 punktów) ≤ 0.61 mm, pełny transport (chwyt → lift → przeniesienie → odłożenie) w obu
+  kierunkach bez potknięcia. **0 porażek IK na 154 waypointów.** Błąd orientacji ≤ **0.01°** —
+  potwierdza sens decyzji o jakobianie 6×7 (orientacja realnie regulowana, nie dryfuje).
+  joint7 wykorzystuje `-0.601 … +2.172` przy limitach `±3.051`; najmniejszy margines do limitu
+  ze wszystkich 7 stawów to **0.720 rad (~41°)**. Wcześniejsze oszacowanie `π/4 ± π/2` było
+  pesymistyczne. **Wariant awaryjny z 5D więzami (yaw swobodny) nie jest potrzebny.**
+  Zastrzeżenie: to czysta kinematyka TCP — model kolizyjny nie był ładowany do pinocchio, więc
+  test **nie** mówi nic o kolizjach ze stołami, autokolizjach ani o nadążaniu JTC.
+- **Dystans transportu ~0.73 m** (kostka `(0.5,0)` → cel `(0,±0.525)`). Przy 5 cm/krok min. ~14
+  kroków samego przenoszenia; `max_episode_steps=200` starczy. Zadanie wyraźnie trudniejsze niż
+  typowe panda-gym (~0.15 m) → strojenie `mu` palców przestaje być odkładalne.
+- **Kostka może spaść w szczelinę** (pod spodem jest podłoga `z=0`). W `step()` przerywać epizod
+  przy `cube_z < 0.35` (`terminated=True`, bez bonusu), inaczej agent ciągnie 200 kroków stanu bez
+  powrotu i zaśmieca replay buffer.
+- **Narożniki stołu głównego przy `y=±0.4`** są blisko bocznych stołów; przedramię przechodzi nad
+  tym rejonem przy joint1=±90°. Stół zwężono z 1.0 na 0.8 w `y` profilaktycznie.
+  **ZAMKNIĘTE — kolizji nie ma (08.2026).** Przejazd 87 waypointów przez JTC w Gazebo (44 s,
+  pełna sekwencja: chwyt w rogu strefy spawnu → lift → transport na przeciwległy stół →
+  odłożenie → powrót, oba kierunki, joint1 przez ±90°): **max błąd nadążania 0.0062 rad (0.35°)**
+  na 62997 próbkach `/fr3_arm_controller/controller_state`. Kolizja ze statycznym stołem
+  objawiłaby się trwałym rozjazdem komenda ↔ stan, bo stół nie ustąpi. Test nie jest pusty —
+  ramię faktycznie dojechało do ostatniego waypointu (`TCP = [0, -0.5246, 0.5748]`, błąd 0.47 mm).
+  Metoda przydatna ponownie przy każdej zmianie geometrii sceny: mierz `error.positions`
+  z `controller_state`, próg podejrzenia ~0.1 rad.
 
 ---
 
