@@ -11,6 +11,11 @@ from franka_rl.ros_bridge import SimInterface
 
 OBS_DIM = 3 + 6 + 1 + 3 + 3   # EE_pos + ori6D + gripper + ee_to_cube + cube_to_goal
 Q_READY = np.array([0.0, -np.pi/4, 0.0, -3*np.pi/4, 0.0, np.pi/2, np.pi/4])
+CUBE_POS_DEFAULT = np.array([0.5, 0.0, 0.425])
+
+GOAL_LEFT = np.array([0.0, 0.525, 0.425])
+GOAL_RIGHT = np.array([0.0, -0.525, 0.425])
+
 TOL = 0.05
 N_settle = 60
 N_cube_settle = 15
@@ -41,7 +46,14 @@ class FrankaPickPlaceEnv(gym.Env):
         y = self.np_random.uniform(-0.2, 0.2)
         z = 0.425
         return np.array([x,y,z])
-        
+    
+    def _sample_goal_cube_pos(self):
+        """L1: static target (left table). L2/L3: random left or right."""
+        if self.level == "L1":
+            return GOAL_LEFT.copy()
+        return (GOAL_LEFT if self.np_random.random() < 0.5 else GOAL_RIGHT).copy()
+
+
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         
@@ -56,12 +68,13 @@ class FrankaPickPlaceEnv(gym.Env):
                 break
             
         if self.level == "L1":
-            cube_pos = np.array([0.5, 0.0, 0.425])
+            cube_pos = CUBE_POS_DEFAULT
         else:
             cube_pos = self._sample_cube_pos()
         
         self.sim_interface.set_cube_pose(cube_pos)
-        
+        self.goal_pos = self._sample_goal_cube_pos()
+
         for _ in range(N_cube_settle):
             self.sim_interface.reserve_t(self.dt)
             
