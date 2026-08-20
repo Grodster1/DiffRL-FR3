@@ -137,16 +137,59 @@
       <link name="link">
         <collision name="collision">
           <geometry>
-            <box><size>0.6 1.0 0.4</size></box>
+            <box><size>0.6 0.8 0.4</size></box>
           </geometry>
         </collision>
         <visual name="visual">
           <geometry>
-            <box><size>0.6 1.0 0.4</size></box>
+            <box><size>0.6 0.8 0.4</size></box>
           </geometry>
           <material>
             <ambient>0.6 0.4 0.2 1</ambient>
             <diffuse>0.6 0.4 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Two tables on each side of the robot (90 deg) -->
+    <model name="table_left">
+      <static>true</static>
+      <pose>0.0 0.525 0.2 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box><size>0.25 0.25 0.4</size></box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>0.25 0.25 0.4</size></box>
+          </geometry>
+          <material>
+            <ambient>0.2 0.5 0.3 1</ambient>
+            <diffuse>0.2 0.5 0.3 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="table_right">
+      <static>true</static>
+      <pose>0.0 -0.525 0.2 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box><size>0.25 0.25 0.4</size></box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>0.25 0.25 0.4</size></box>
+          </geometry>
+          <material>
+            <ambient>0.2 0.3 0.5 1</ambient>
+            <diffuse>0.2 0.3 0.5 1</diffuse>
           </material>
         </visual>
       </link>
@@ -169,14 +212,14 @@
           <surface>
             <friction>
               <ode>
-                <mu>1.0</mu>    <!--do strojenia-->
-                <mu2>1.0</mu2>  <!--do strojenia-->
+                <mu>1.0</mu>    <!--tunable-->
+                <mu2>1.0</mu2>  <!--tunable-->
               </ode>
             </friction>
             <contact>
               <ode>
-                <kp>1e5</kp>       <!--do strojenia-->
-                <kd>10</kd>        <!--do strojenia-->
+                <kp>1e5</kp>       <!--tunable-->
+                <kd>10</kd>        <!--tunable-->
                 <min_depth>0.001</min_depth>
               </ode>
             </contact>
