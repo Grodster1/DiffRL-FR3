@@ -26,9 +26,6 @@ def generate_launch_description():
         launch_arguments={'gz_args':f'-r -s {world_file}'}.items()
     )
     
-    #--- Bridge Yaml Path ---
-    bridge_yaml_path = os.path.join(pkg, 'config', 'bridge.yaml')
-    
     #--- Robot State Publisher ---
     rsp = Node(
         package = 'robot_state_publisher',
@@ -73,7 +70,7 @@ def generate_launch_description():
     )
     
     # --- Cube Pose Bridge ---
-    # Poza kostki z pluginu PosePublisher wpietego w model `cube` (worlds/fr3_world.sdf).
+    # Cube pose from PosePublisher plugin from model `cube` (worlds/fr3_world.sdf).
 
     cube_pose_bridge = Node(
         package='ros_gz_bridge',
@@ -87,7 +84,11 @@ def generate_launch_description():
         package='ros_gz_bridge',
         executable ='parameter_bridge',
         name='set_cube_pose_bridge',
-        parameters=[{'config_file': bridge_yaml_path}],
+        
+        arguments=[
+            '/world/fr3_world/set_pose@ros_gz_interfaces/srv/SetEntityPose'
+            '@gz.msgs.Pose@gz.msgs.Boolean'
+        ],
         output='screen'
     )
     
