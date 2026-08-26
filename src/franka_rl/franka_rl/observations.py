@@ -1,10 +1,5 @@
 import numpy as np
-
-OBS_DIM = 3 + 6 + 1 + 3 + 3   # EE_pos + ori6D + gripper + ee_to_cube + cube_to_goal
-WORKSPACE_BOX = np.array([[-0.15, -0.6, 0.42],
-                          [0.70, 0.6, 0.65]])
-GRIPPER_RANGE = (0.0, 0.04)
-REL_SCALE = np.array([0.8, 0.8, 0.25])
+from franka_rl.config import WORKSPACE_BOX, GRIPPER_RANGE, REL_SCALE
 
 def build_obs_dict(q_arm, gripper_opening, cube_pos, goal_pos, kin):
     """ Raw observation in SI units - using to compute reward """
