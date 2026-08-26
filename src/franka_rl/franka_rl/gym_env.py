@@ -4,12 +4,13 @@ import tempfile
 import xacro
 import rclpy
 import franka_rl.inverse_kinematics
+import franka_rl.observations as obs
 from franka_rl.urdf_utils import strip_finger_mimic
 from franka_rl.kinematics import FrankaKinematics
 from franka_rl.ros_bridge import SimInterface
 
 
-OBS_DIM = 3 + 6 + 1 + 3 + 3   # EE_pos + ori6D + gripper + ee_to_cube + cube_to_goal
+
 Q_READY = np.array([0.0, -np.pi/4, 0.0, -3*np.pi/4, 0.0, np.pi/2, np.pi/4])
 CUBE_POS_DEFAULT = np.array([0.5, 0.0, 0.425])
 
@@ -37,7 +38,7 @@ class FrankaPickPlaceEnv(gym.Env):
         
         rclpy.init()
         self.sim_interface = SimInterface()
-        self.observation_space = gym.spaces.Box(-1.0, 1.0, (OBS_DIM,), dtype=np.float32)
+        self.observation_space = gym.spaces.Box(-1.0, 1.0, (obs.OBS_DIM,), dtype=np.float32)
         self.action_space = gym.spaces.Box(-1.0, 1.0, (4,), dtype=np.float32)
         _, self.R_frozen = self.kin.fk(Q_READY)
     
@@ -53,7 +54,16 @@ class FrankaPickPlaceEnv(gym.Env):
             return GOAL_LEFT.copy()
         return (GOAL_LEFT if self.np_random.random() < 0.5 else GOAL_RIGHT).copy()
 
-
+    def _get_obs(self):
+        state = self.sim_interface.wait_for_state()
+        self._last_obs_dict = obs.build_obs_dict(
+            state["q_arm"], state["gripper_opening"], state["cube_pos"], self.goal_pos, self.kin 
+        )
+        return obs.normalize(self._last_obs_dict)
+    
+    def _get_info(self):
+        return self._last_obs_dict["cube_to_goal"]
+    
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         
@@ -68,7 +78,7 @@ class FrankaPickPlaceEnv(gym.Env):
                 break
             
         if self.level == "L1":
-            cube_pos = CUBE_POS_DEFAULT
+            cube_pos = CUBE_POS_DEFAULT.copy()
         else:
             cube_pos = self._sample_cube_pos()
         
@@ -78,7 +88,12 @@ class FrankaPickPlaceEnv(gym.Env):
         for _ in range(N_cube_settle):
             self.sim_interface.reserve_t(self.dt)
             
-        
-        return 
+        observation = self._get_obs()
+        info = self._get_info()
+            
+        return observation, info
+    
+    def step(self, seed=None, options=None):
+        super().reset(seed=seed)
         
         
