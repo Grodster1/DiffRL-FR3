@@ -21,9 +21,9 @@ class SimInterface(Node):
         self._q_arm = None
         self._dq_arm = None
         self._cube_pos = None
+        self._cube_vel = None
         self._sim_time = None
         self._gripper_opening = None
-        
         
         self._joint_states_sub = self.create_subscription(JointState, "/joint_states", self._on_joint_states_callback, 10)
         self._cube_odom_sub = self.create_subscription(Odometry, "/model/cube/odometry", self._on_cube_callback, 10)
@@ -47,7 +47,10 @@ class SimInterface(Node):
         
     def _on_cube_callback(self, msg: Odometry):
         pos = msg.pose.pose.position
+        vel = msg.twist.twist.linear
+        
         self._cube_pos = np.array([pos.x, pos.y, pos.z])
+        self._cube_vel = np.array([vel.x, vel.y, vel.z])
         
     def _on_clock_callback(self, msg: Clock):
         self._sim_time = msg.clock.sec + msg.clock.nanosec * 1e-9
@@ -121,4 +124,5 @@ class SimInterface(Node):
             "q_arm": self._q_arm,
             "dq_arm": self._dq_arm,
             "cube_pos": self._cube_pos,
+            "cube_vel": self._cube_vel,
         }
