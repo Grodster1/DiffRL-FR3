@@ -22,7 +22,11 @@ class FrankaPickPlaceEnv(gym.Env):
         self.dt = dt
         self.max_episode_steps = max_episode_steps
         self.level = level
+        self._grasped = False
+        self._grasped_streak = 0
+        self._just_grasped = False
         self._step_count = 0
+        self._ik_failures = 0
         
         self.kin = FrankaKinematics(urdf_path)
         
@@ -33,49 +37,109 @@ class FrankaPickPlaceEnv(gym.Env):
         _, self.R_frozen = self.kin.fk(cfg.Q_READY)
     
     def _sample_cube_pos(self):
+        """ Samples cube's starting position - used for L2. """
         x = self.np_random.uniform(0.4, 0.6)
         y = self.np_random.uniform(-0.2, 0.2)
         z = 0.425
         return np.array([x,y,z])
     
     def _sample_goal_cube_pos(self):
-        """L1: static target (left table). L2/L3: random left or right."""
+        """ L1: static target (left table). L2/L3: random left or right. """
         if self.level == "L1":
             return cfg.GOAL_LEFT.copy()
         return (cfg.GOAL_LEFT if self.np_random.random() < 0.5 else cfg.GOAL_RIGHT).copy()
 
     def _get_obs(self):
-        state = self.sim_interface.wait_for_state()
+        """ Returns normalized observation dictionary and saves last state. """
+        self._last_state = self.sim_interface.wait_for_state()
+        state = self._last_state
         self._last_obs_dict = obs.build_obs_dict(
-            state["q_arm"], state["gripper_opening"], state["cube_pos"], self.goal_pos, self.kin 
+            state["q_arm"], 
+            state["gripper_opening"], 
+            state["cube_pos"], 
+            self.goal_pos, 
+            self.kin
+        )
+        self._last_obs_dict["is_grasped"] = self._update_grasped(
+            self._last_obs_dict["ee_to_cube"], 
+            state["cube_pos"],
+            state["gripper_opening"]
         )
         return obs.normalize(self._last_obs_dict)
-    
+
     def _get_info(self):
-        return self._last_obs_dict["cube_to_goal"]
+        """ Returns info containing "cube_to goal" and "ik_failures" """
+        return {
+            "cube_to_goal": self._last_obs_dict["cube_to_goal"],
+            "ik_failures": self._ik_failures,
+        }
     
-    def compute_reward(self, obs, action, grasped, success):
+    def _compute_reward(self, action, grasped, just_grasped, success):
+        """ Computes reward additively.
+            The transport term is always active, so entering the grasped state can
+            only raise the reward. R_GRASP is paid once, on the rising edge - paying
+            it per step would make hovering over the goal beat releasing the cube. """
+        d_reach = np.linalg.norm(self._last_obs_dict["ee_to_cube"])
+        d_transport = np.linalg.norm(self._last_obs_dict["cube_to_goal"])
+
+        reward = -cfg.W_TRANSPORT * d_transport
+
         if not grasped:
-            reward = -obs["ee_to_cube"] * cfg.W_REACH
-        else:
-            reward = cfg.R_GRASP
-            reward -= obs["cube_to_goal"] * cfg.W_TRANSPORT
-        
+            reward -= cfg.W_REACH * d_reach
+
+        if just_grasped:
+            reward += cfg.R_GRASP
+
         if success:
             reward += cfg.R_SUCCESS
-            
+
         reward -= cfg.W_ENERGY * np.sum(action**2)
-        
+
         return reward
     
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
+    def _update_grasped(self, ee_to_cube, cube_pos, gripper_opening):
+        """ Checks whether cube is being held using _grasped_streak tracking
+            We need to confirm that cube is really being held - that's why 
+            we need streak to be over N_GRASP_CONFIRM."""
         
+        self._just_grasped = False
+
+        holding = (cfg.GRASP_OPENING_MIN < gripper_opening < cfg.GRASP_OPENING_MAX and np.linalg.norm(ee_to_cube) < cfg.GRASP_DIST_THRESH)
+        if self._grasped:
+            if not holding or cube_pos[2] < cfg.CUBE_POS_DEFAULT[2] + cfg.LIFT_MARGIN_EXIT:
+                self._grasped = False
+                self._grasped_streak = 0
+        else:
+            if holding and cube_pos[2] > cfg.CUBE_POS_DEFAULT[2] + cfg.LIFT_MARGIN_ENTER:
+                self._grasped_streak += 1
+            else:
+                self._grasped_streak = 0
+            if self._grasped_streak >= cfg.N_GRASP_CONFIRM:
+                self._grasped = True
+                self._just_grasped = True
+
+        return self._grasped
+        
+    def _is_success(self, cube_pos, cube_vel, grasped):
+        """ Checks if cube is final goal position within tolerance """
+        
+        on_target_xy = np.linalg.norm(cube_pos[:2] - self.goal_pos[:2]) < cfg.SUCCESS_XY_TOL
+        on_table = abs(cube_pos[2] - self.goal_pos[2]) < cfg.SUCCESS_Z_TOL
+        at_rest = np.linalg.norm(cube_vel) < cfg.SUCCESS_VEL_EPS
+        
+        return on_target_xy and on_table and at_rest and not grasped
+    
+    def reset(self, seed=None, options=None):
         """ Sequence: move away arm -> spawn cube """
         
+        super().reset(seed=seed)
         self.sim_interface.publish_arm_command(cfg.Q_READY, self.dt)
         self._step_count = 0
-        
+        self._ik_failures = 0
+        self._grasped_streak = 0
+        self._grasped = False
+        self._just_grasped = False
+
         for _ in range(cfg.N_SETTLE):
             self.sim_interface.reserve_t(self.dt)
             state = self.sim_interface.get_state()
@@ -103,9 +167,9 @@ class FrankaPickPlaceEnv(gym.Env):
         state = self.sim_interface.get_state()
         q_current = state["q_arm"]
         
-        p_ee_current, _ = self.kin.fk(q_current) # or self._last_obs_dict["ee_pos"]
+        p_ee_current, _ = self.kin.fk(q_current)
         delta = action[:3] * cfg.ACTION_SCALE
-        p_des = p_des + delta
+        p_des = p_ee_current + delta
         p_des= ik.clip_to_workspace(p_des)
         
         q_target, ik_output = ik.solve_ik(self.kin, q_current, p_des, self.R_frozen)
@@ -115,7 +179,27 @@ class FrankaPickPlaceEnv(gym.Env):
         self.sim_interface.publish_gripper_command(opening, self.dt)
         self.sim_interface.reserve_t(self.dt)
         
-        obs = self._get_obs()
+        observation = self._get_obs()
+        state = self._last_state
+
+        grasped = self._last_obs_dict["is_grasped"]
+        success = self._is_success(state["cube_pos"], state["cube_vel"], grasped)
+        dropped = state["cube_pos"][2] < cfg.CUBE_DROP_Z
+
+        reward = self._compute_reward(action, grasped, self._just_grasped, success)
+
+        if not ik_output["success"]:
+            self._ik_failures += 1
+
+        self._step_count += 1
+        
+        terminated = bool(success or dropped)
+        truncated = bool(self._step_count >= self.max_episode_steps)
+
+        info = self._get_info()
+
+        return observation, reward, terminated, truncated, info
+        
         
         
         
