@@ -27,7 +27,8 @@ def normalize(obs_dict):
     gripper = _to_unit(np.asarray(obs_dict["gripper"], dtype=float), gr_min, gr_max)
     ee_to_cube = np.clip(np.asarray(obs_dict["ee_to_cube"], dtype=float) / REL_SCALE, -1.0, 1.0)
     cube_to_goal = np.clip(np.asarray(obs_dict["cube_to_goal"], dtype=float) / REL_SCALE, -1.0, 1.0)
-
-    obs = np.concatenate([ee_pos, ee_rot6d, [gripper], ee_to_cube, cube_to_goal])
+    is_grasped = 1.0 if obs_dict["is_grasped"] else -1.0
+    
+    obs = np.concatenate([ee_pos, ee_rot6d, [gripper], ee_to_cube, cube_to_goal, [is_grasped]])
 
     return obs.astype(np.float32)
