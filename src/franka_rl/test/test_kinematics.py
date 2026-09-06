@@ -15,7 +15,7 @@ def _numerical_jacobian(kin, q_arm, eps = 1e-6):
         #Translation
         J[:3, i] = (p1 - p0)/eps
         
-        #Rotation — world-aligned, to match LOCAL_WORLD_ALIGNED in kin.jacobian()
+        #Rotation - world-aligned, to match LOCAL_WORLD_ALIGNED in kin.jacobian()
         J[3:, i] = pin.log3(R1 @ R0.T)/eps
         
     return J

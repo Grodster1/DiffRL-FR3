@@ -21,8 +21,8 @@ ACTION_SCALE = 0.05
 # Grasp
 LIFT_MARGIN_ENTER = 0.02
 LIFT_MARGIN_EXIT = 0.01
-GRASP_OPENING_MAX = 0.032 
-GRASP_OPENING_MIN = 0.018
+GRASP_OPENING_MAX = 0.064  # [Z] cube side 0.05 +28%; measured grasp gives 0.040+0.010=0.050
+GRASP_OPENING_MIN = 0.036  # [Z] excludes both fully open (0.08) and closed on air (0.0)
 GRASP_DIST_THRESH = 0.05
 N_GRASP_CONFIRM = 2
 
@@ -34,7 +34,7 @@ SUCCESS_VEL_EPS = 0.01    # [Z]/[P] DART posts exactly 0.0 (2500 samples);
 
 # Observation
 OBS_DIM = 3 + 6 + 1 + 3 + 3 + 1  # EE_pos + ori6D + gripper + ee_to_cube + cube_to_goal + is_grasped
-GRIPPER_RANGE = (0.0, 0.04)
+GRIPPER_RANGE = (0.0, 0.08)  # [W] total aperture: both fingers, each 0.0-0.04
 REL_SCALE = np.array([0.8, 0.8, 0.25])
 
 # Joints

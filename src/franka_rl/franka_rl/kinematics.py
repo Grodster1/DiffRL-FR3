@@ -4,7 +4,7 @@ from pathlib import Path
 
 class FrankaKinematics:
     def __init__(self, urdf_path: str, ee_frame: str = "fr3_hand_tcp"):
-        """ urdf_path — path to a rendered URDF file (e.g. /tmp/fr3.urdf from xacro) """
+        """ urdf_path - path to a rendered URDF file (e.g. /tmp/fr3.urdf from xacro) """
 
         self.model = pin.buildModelFromUrdf(urdf_path)
         self.data = self.model.createData()

@@ -40,7 +40,11 @@ class SimInterface(Node):
         name_pos = dict(zip(msg.name, msg.position))
         name_vel = dict(zip(msg.name, msg.velocity))
         
-        self._gripper_opening = name_pos["fr3_finger_joint1"]
+        # Total aperture = sum over both fingers. Each finger travels independently
+        # from the symmetry axis and the split between them depends on where the cube
+        # sits laterally (measured: 0.040 / 0.010 on a centred-looking grasp), so a
+        # single finger is not a measure of how open the gripper is.
+        self._gripper_opening = sum(name_pos[j] for j in GRIPPER_JOINTS)
         
         self._q_arm = np.array([name_pos[j] for j in ARM_JOINTS])
         self._dq_arm = np.array([name_vel[j] for j in ARM_JOINTS])
@@ -66,10 +70,12 @@ class SimInterface(Node):
         self._arm_pub.publish(msg)
         
     def publish_gripper_command(self, opening, dt):
+        """ `opening` is the TOTAL aperture (cfg.GRIPPER_RANGE); each finger gets half
+            of it. This layer is the only one that knows the gripper has two joints. """
         msg = JointTrajectory()
         msg.joint_names = GRIPPER_JOINTS
         traj_point = JointTrajectoryPoint()
-        traj_point.positions = [opening, opening]
+        traj_point.positions = [opening / 2.0, opening / 2.0]
         
         traj_point.time_from_start = Duration(sec=0, nanosec=int(dt*1e9))
         msg.points = [traj_point]
