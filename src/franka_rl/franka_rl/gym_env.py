@@ -25,12 +25,18 @@ class FrankaPickPlaceEnv(gym.Env):
         self._grasped = False
         self._grasped_streak = 0
         self._just_grasped = False
+        self._ever_grasped = False
+        self._success = False
+        self._dropped = False
+        self._min_ee_to_cube = np.inf
         self._step_count = 0
         self._ik_failures = 0
-        
+
         self.kin = FrankaKinematics(urdf_path)
+        self._owns_rclpy = not rclpy.ok()
         
-        rclpy.init()
+        if self._owns_rclpy:
+            rclpy.init()
         self.sim_interface = SimInterface()
         self.observation_space = gym.spaces.Box(-1.0, 1.0, (cfg.OBS_DIM,), dtype=np.float32)
         self.action_space = gym.spaces.Box(-1.0, 1.0, (4,), dtype=np.float32) # [dx, dy, dz, g]
@@ -61,17 +67,28 @@ class FrankaPickPlaceEnv(gym.Env):
             self.kin
         )
         self._last_obs_dict["is_grasped"] = self._update_grasped(
-            self._last_obs_dict["ee_to_cube"], 
+            self._last_obs_dict["ee_to_cube"],
             state["cube_pos"],
             state["gripper_opening"]
+        )
+        self._min_ee_to_cube = min(
+            self._min_ee_to_cube,
+            float(np.linalg.norm(self._last_obs_dict["ee_to_cube"]))
         )
         return obs.normalize(self._last_obs_dict)
 
     def _get_info(self):
-        """ Returns info containing "cube_to goal" and "ik_failures" """
+        """ Per-step info. The episode-level flags ("is_success", "is_grasped",
+            "min_ee_to_cube") are sticky - they summarize the whole episode, so
+            the value read at the final step is the episode's verdict. That is
+            what Monitor(info_keywords=...) and SB3's rollout/success_rate read. """
         return {
             "cube_to_goal": self._last_obs_dict["cube_to_goal"],
             "ik_failures": self._ik_failures,
+            "is_success": self._success,
+            "is_grasped": self._ever_grasped,
+            "dropped": self._dropped,
+            "min_ee_to_cube": self._min_ee_to_cube,
         }
     
     def _compute_reward(self, action, grasped, just_grasped, success):
@@ -79,6 +96,7 @@ class FrankaPickPlaceEnv(gym.Env):
             The transport term is always active, so entering the grasped state can
             only raise the reward. R_GRASP is paid once, on the rising edge - paying
             it per step would make hovering over the goal beat releasing the cube. """
+            
         d_reach = np.linalg.norm(self._last_obs_dict["ee_to_cube"])
         d_transport = np.linalg.norm(self._last_obs_dict["cube_to_goal"])
 
@@ -117,6 +135,7 @@ class FrankaPickPlaceEnv(gym.Env):
             if self._grasped_streak >= cfg.N_GRASP_CONFIRM:
                 self._grasped = True
                 self._just_grasped = True
+                self._ever_grasped = True
 
         return self._grasped
         
@@ -127,22 +146,27 @@ class FrankaPickPlaceEnv(gym.Env):
         on_table = abs(cube_pos[2] - self.goal_pos[2]) < cfg.SUCCESS_Z_TOL
         at_rest = np.linalg.norm(cube_vel) < cfg.SUCCESS_VEL_EPS
         
-        return on_target_xy and on_table and at_rest and not grasped
+        return bool(on_target_xy and on_table and at_rest and not grasped)
     
     def reset(self, seed=None, options=None):
         """ Sequence: move away arm -> spawn cube """
         
         super().reset(seed=seed)
-        self.sim_interface.publish_arm_command(cfg.Q_READY, self.dt)
+        self.sim_interface.publish_gripper_command(cfg.GRIPPER_RANGE[1], cfg.RESET_DT)
+        self.sim_interface.publish_arm_command(cfg.Q_READY, cfg.RESET_DT)
         self._step_count = 0
         self._ik_failures = 0
         self._grasped_streak = 0
         self._grasped = False
         self._just_grasped = False
+        self._ever_grasped = False
+        self._success = False
+        self._dropped = False
+        self._min_ee_to_cube = np.inf
 
         for _ in range(cfg.N_SETTLE):
             self.sim_interface.reserve_t(self.dt)
-            state = self.sim_interface.get_state()
+            state = self.sim_interface.wait_for_state()
             if np.linalg.norm(state["q_arm"] - cfg.Q_READY) < cfg.TOL:
                 break
             
@@ -164,17 +188,20 @@ class FrankaPickPlaceEnv(gym.Env):
     
     def step(self, action):
         action = np.asarray(action, dtype=float)
-        state = self.sim_interface.get_state()
+        state = self.sim_interface.wait_for_state()
         q_current = state["q_arm"]
         
         p_ee_current, _ = self.kin.fk(q_current)
         delta = action[:3] * cfg.ACTION_SCALE
         p_des = p_ee_current + delta
-        p_des= ik.clip_to_workspace(p_des)
+        p_des= ik.clip_to_workspace(p_des, cfg.WORKSPACE_BOX)
         
         q_target, ik_output = ik.solve_ik(self.kin, q_current, p_des, self.R_frozen)
-        opening = cfg.GRIPPER_RANGE[1] if action[3] > 0 else cfg.GRIPPER_RANGE[0] 
         
+        if not ik_output["success"]:
+            q_target = q_current
+        opening = cfg.GRIPPER_RANGE[1] if action[3] > 0 else cfg.GRIPPER_RANGE[0]
+
         self.sim_interface.publish_arm_command(q_target, self.dt)
         self.sim_interface.publish_gripper_command(opening, self.dt)
         self.sim_interface.reserve_t(self.dt)
@@ -184,7 +211,10 @@ class FrankaPickPlaceEnv(gym.Env):
 
         grasped = self._last_obs_dict["is_grasped"]
         success = self._is_success(state["cube_pos"], state["cube_vel"], grasped)
-        dropped = state["cube_pos"][2] < cfg.CUBE_DROP_Z
+        dropped = bool(state["cube_pos"][2] < cfg.CUBE_DROP_Z)
+
+        self._success = success
+        self._dropped = dropped
 
         reward = self._compute_reward(action, grasped, self._just_grasped, success)
 
@@ -199,6 +229,19 @@ class FrankaPickPlaceEnv(gym.Env):
         info = self._get_info()
 
         return observation, reward, terminated, truncated, info
+
+    def close(self):
+        """ Cleans up ROS node. Gymnasium calls close() from __del__,
+            and SB3 at the end of the training phase. `rclpy.shutdown()` 
+            only if WE performed init(). """
+        
+        if getattr(self, "sim_interface", None) is not None:
+            self.sim_interface.destroy_node()
+            self.sim_interface = None
+
+        if getattr(self, "_owns_rclpy", False) and rclpy.ok():
+            rclpy.shutdown()
+            self._owns_rclpy = False
         
         
         
