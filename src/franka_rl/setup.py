@@ -21,6 +21,7 @@ setup(
         'console_scripts' : [
             'train_sac = franka_rl.train_sac:train_sac',
             'random_baseline = franka_rl.random_baseline:random_baseline',
+            'collect_demos = franka_rl.collect_demos:collect_demos'
         ],
     },
 )

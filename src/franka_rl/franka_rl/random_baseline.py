@@ -32,7 +32,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def run_episode(env, action_rng):
+def run_episode(env:FrankaPickPlaceEnv, action_rng):
     """ Rolls out one episode of uniformly random actions.
         Returns the episode record built from the terminal info dict. """
     _, info = env.reset()

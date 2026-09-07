@@ -42,6 +42,10 @@ class FrankaPickPlaceEnv(gym.Env):
         self.action_space = gym.spaces.Box(-1.0, 1.0, (4,), dtype=np.float32) # [dx, dy, dz, g]
         _, self.R_frozen = self.kin.fk(cfg.Q_READY)
     
+    @property
+    def obs_dict(self):
+        return self._last_obs_dict
+    
     def _sample_cube_pos(self):
         """ Samples cube's starting position - used for L2. """
         x = self.np_random.uniform(0.4, 0.6)
