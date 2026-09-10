@@ -31,6 +31,7 @@ class FrankaPickPlaceEnv(gym.Env):
         self._min_ee_to_cube = np.inf
         self._step_count = 0
         self._ik_failures = 0
+        self._reset_control_period_stats()
 
         self.kin = FrankaKinematics(urdf_path)
         self._owns_rclpy = not rclpy.ok()
@@ -52,6 +53,18 @@ class FrankaPickPlaceEnv(gym.Env):
         y = self.np_random.uniform(-0.2, 0.2)
         z = 0.425
         return np.array([x,y,z])
+    
+    def _potential(self):
+        """Computes Potential for Potential-Based Shaping Reward """
+        d_reach = np.linalg.norm(self._last_obs_dict["ee_to_cube"])
+        d_transport = np.linalg.norm(self._last_obs_dict["cube_to_goal"])
+        
+        phi = -cfg.W_TRANSPORT * d_transport
+        
+        if not self._last_obs_dict["is_grasped"]:
+            phi -= cfg.W_REACH * d_reach
+        
+        return phi
     
     def _sample_goal_cube_pos(self):
         """ L1: static target (left table). L2/L3: random left or right. """
@@ -81,9 +94,32 @@ class FrankaPickPlaceEnv(gym.Env):
         )
         return obs.normalize(self._last_obs_dict)
 
+    def _reset_control_period_stats(self):
+        self._t_last_cmd = None
+        self._sim_dt_sum = 0.0
+        self._sim_dt_max = 0.0
+        self._sim_dt_n = 0
+
+    def _record_control_period(self, t_cmd):
+        """ Measures the real control period: sim time between two consecutive
+            command publications. """
+
+        if self._t_last_cmd is not None:
+            sim_dt = t_cmd - self._t_last_cmd
+            self._sim_dt_sum += sim_dt
+            self._sim_dt_max = max(self._sim_dt_max, sim_dt)
+            self._sim_dt_n += 1
+
+        self._t_last_cmd = t_cmd
+
+    @property
+    def sim_dt_mean(self):
+        """ Mean control period so far this episode; `dt` when nothing overruns. """
+        return self._sim_dt_sum / self._sim_dt_n if self._sim_dt_n else self.dt
+
     def _get_info(self):
         """ Per-step info. The episode-level flags ("is_success", "is_grasped",
-            "min_ee_to_cube") are sticky - they summarize the whole episode, so
+            "min_ee_to_cube") summarize the whole episode, so
             the value read at the final step is the episode's verdict. That is
             what Monitor(info_keywords=...) and SB3's rollout/success_rate read. """
         return {
@@ -93,21 +129,17 @@ class FrankaPickPlaceEnv(gym.Env):
             "is_grasped": self._ever_grasped,
             "dropped": self._dropped,
             "min_ee_to_cube": self._min_ee_to_cube,
+            "sim_dt_mean": self.sim_dt_mean,
+            "sim_dt_max": self._sim_dt_max,
         }
     
-    def _compute_reward(self, action, grasped, just_grasped, success):
+    def _compute_reward(self, action, phi_prev, phi_next, just_grasped, success):
         """ Computes reward additively.
-            The transport term is always active, so entering the grasped state can
-            only raise the reward. R_GRASP is paid once, on the rising edge - paying
-            it per step would make hovering over the goal beat releasing the cube. """
-            
-        d_reach = np.linalg.norm(self._last_obs_dict["ee_to_cube"])
-        d_transport = np.linalg.norm(self._last_obs_dict["cube_to_goal"])
+            Reward is computed based on Potential which uses Potential-Based Shaping Reward 
+            R_GRASP is paid once, on the rising edge - paying it per step
+            would make hovering over the goal beat releasing the cube. """
 
-        reward = -cfg.W_TRANSPORT * d_transport
-
-        if not grasped:
-            reward -= cfg.W_REACH * d_reach
+        reward = cfg.GAMMA * phi_next - phi_prev
 
         if just_grasped:
             reward += cfg.R_GRASP
@@ -167,6 +199,7 @@ class FrankaPickPlaceEnv(gym.Env):
         self._success = False
         self._dropped = False
         self._min_ee_to_cube = np.inf
+        self._reset_control_period_stats()
 
         for _ in range(cfg.N_SETTLE):
             self.sim_interface.reserve_t(self.dt)
@@ -191,6 +224,7 @@ class FrankaPickPlaceEnv(gym.Env):
         return observation, info
     
     def step(self, action):
+        phi_prev = self._potential()
         action = np.asarray(action, dtype=float)
         state = self.sim_interface.wait_for_state()
         q_current = state["q_arm"]
@@ -206,6 +240,7 @@ class FrankaPickPlaceEnv(gym.Env):
             q_target = q_current
         opening = cfg.GRIPPER_RANGE[1] if action[3] > 0 else cfg.GRIPPER_RANGE[0]
 
+        self._record_control_period(self.sim_interface.sim_time())
         self.sim_interface.publish_arm_command(q_target, self.dt)
         self.sim_interface.publish_gripper_command(opening, self.dt)
         self.sim_interface.reserve_t(self.dt)
@@ -219,16 +254,17 @@ class FrankaPickPlaceEnv(gym.Env):
 
         self._success = success
         self._dropped = dropped
+        
+        self._step_count += 1
+        terminated = bool(success or dropped)
+        truncated = bool(self._step_count >= self.max_episode_steps)
+        
+        phi_next = 0.0 if terminated else self._potential()
 
-        reward = self._compute_reward(action, grasped, self._just_grasped, success)
+        reward = self._compute_reward(action, phi_prev, phi_next, self._just_grasped, success)
 
         if not ik_output["success"]:
             self._ik_failures += 1
-
-        self._step_count += 1
-        
-        terminated = bool(success or dropped)
-        truncated = bool(self._step_count >= self.max_episode_steps)
 
         info = self._get_info()
 
@@ -237,7 +273,7 @@ class FrankaPickPlaceEnv(gym.Env):
     def close(self):
         """ Cleans up ROS node. Gymnasium calls close() from __del__,
             and SB3 at the end of the training phase. `rclpy.shutdown()` 
-            only if WE performed init(). """
+            only if we performed init(). """
         
         if getattr(self, "sim_interface", None) is not None:
             self.sim_interface.destroy_node()
