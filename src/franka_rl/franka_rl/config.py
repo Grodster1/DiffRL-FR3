@@ -49,3 +49,6 @@ W_ENERGY = 0.01     # [P]
 # Rewards
 R_GRASP = 1.0       # [P] Once False->True
 R_SUCCESS = 20.0    # [P] must exceed the sum of negative rewards (~ -11)
+
+# Training
+GAMMA = 0.99

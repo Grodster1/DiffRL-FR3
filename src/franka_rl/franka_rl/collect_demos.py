@@ -73,6 +73,8 @@ def run_episode(env:FrankaPickPlaceEnv, expert:ScriptedExpert, seed, verbose=Fal
         "dropped": bool(info["dropped"]),
         "min_ee_to_cube": float(info["min_ee_to_cube"]),
         "ik_failures": int(info["ik_failures"]),
+        "sim_dt_mean": float(info["sim_dt_mean"]),
+        "sim_dt_max": float(info["sim_dt_max"]),
         "terminated": bool(terminated),
         "expert_failed": bool(expert.failed),
         "failure_phase": expert.failure_phase,
@@ -107,13 +109,15 @@ def summarize(records, wall_time):
         "min_ee_to_cube_p10": float(np.percentile(min_dists, 10)),
         "min_ee_to_cube_median": float(np.median(min_dists)),
         "ik_failure_rate": float(ik_failures.sum() / max(total_steps, 1)),
+        "sim_dt_mean": float(np.mean([r["sim_dt_mean"] for r in records])),
+        "sim_dt_max": float(np.max([r["sim_dt_max"] for r in records])),
     }
     
 def save_episodes(run_dir, index, traj):
     """ Saves episodes in .npz format with traj unpacking """
     np.savez_compressed(run_dir / f"ep_{index:04d}.npz", **traj)
     
-def print_summary(stats, grasp_dist_thresh):
+def print_summary(stats, grasp_dist_thresh, dt):
     print("\n=== expert-driven actions ===")
     print(f"attempts            : {stats['episodes']}  ({stats['total_steps']} steps, "
           f"{stats['fps']:.1f} FPS)")
@@ -129,6 +133,8 @@ def print_summary(stats, grasp_dist_thresh):
     print(f"min |ee-cube| p10   : {stats['min_ee_to_cube_p10']:.3f} m")
     print(f"min |ee-cube| median: {stats['min_ee_to_cube_median']:.3f} m")
     print(f"ik_failure_rate     : {stats['ik_failure_rate']:.3f}")
+    print(f"sim dt mean/max     : {stats['sim_dt_mean']*1e3:.1f} / {stats['sim_dt_max']*1e3:.1f} ms "
+          f"(nominal {dt*1e3:.0f})")
     print(f"expert_failure_rate : {stats['expert_failure_rate']:.3f}")
     if stats["failure_phases"]:
         breakdown = "  ".join(f"{phase}={n}" for phase, n in stats["failure_phases"].items())
@@ -211,7 +217,7 @@ def collect_demos():
     with open(run_dir / "meta.json", "w") as f:
         json.dump(meta, f, indent=2)
         
-    print_summary(stats, cfg.GRASP_DIST_THRESH)
+    print_summary(stats, cfg.GRASP_DIST_THRESH, env.dt)
     print(f"\nwritten to {run_dir}")
                 
 if __name__ == "__main__":
