@@ -101,15 +101,30 @@ class SimInterface(Node):
         if not future.result().success:
             raise RuntimeError(f"SetEntityPose returned success=False for {cube_pos}")
 
-    def reserve_t(self, dt):
-        start = self._sim_time
+    def sim_time(self):
+        """ Current simulation clock [s], spinning until the first /clock message
+            arrives. The only sanctioned way to read time above this layer. """
         while self._sim_time is None:
             rclpy.spin_once(self, timeout_sec=0.01)
-            
-        start = self._sim_time
+
+        return self._sim_time
+
+    def reserve_t(self, dt):
+        """ Waits until the sim clock has advanced by at least `dt`.
+
+            This is a lower bound and nothing here pauses the simulator, so with
+            `real_time_factor=0` every time burned above this layer (IK,
+            observation building, an SAC gradient step) is sim time that elapses
+            outside the loop's control while JTC holds the last command. Returns
+            the sim time actually consumed so callers can measure that overshoot;
+            an upper bound needs phase 2 (`multi_step`). """
+
+        start = self.sim_time()
         while (self._sim_time - start) < dt:
-            rclpy.spin_once(self, timeout_sec=0.01) 
-        
+            rclpy.spin_once(self, timeout_sec=0.01)
+
+        return self._sim_time - start
+
     def wait_for_state(self, timeout=10.0):
         deadline = time.monotonic() + timeout
 
