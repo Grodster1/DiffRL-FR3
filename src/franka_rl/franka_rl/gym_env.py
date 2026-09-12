@@ -133,11 +133,14 @@ class FrankaPickPlaceEnv(gym.Env):
             "sim_dt_max": self._sim_dt_max,
         }
     
-    def _compute_reward(self, action, phi_prev, phi_next, just_grasped, success):
+    def _compute_reward(self, action, phi_prev, phi_next, just_grasped, success, dropped):
         """ Computes reward additively.
-            Reward is computed based on Potential which uses Potential-Based Shaping Reward 
+            Reward is computed based on Potential which uses Potential-Based Shaping Reward
             R_GRASP is paid once, on the rising edge - paying it per step
-            would make hovering over the goal beat releasing the cube. """
+            would make hovering over the goal beat releasing the cube.
+            R_DROP makes the failure terminal net negative: zeroing Phi on termination
+            pays out -Phi_prev on its own, so without it ending the episode early is
+            still worth a little. """
 
         reward = cfg.GAMMA * phi_next - phi_prev
 
@@ -146,6 +149,9 @@ class FrankaPickPlaceEnv(gym.Env):
 
         if success:
             reward += cfg.R_SUCCESS
+
+        if dropped:
+            reward += cfg.R_DROP
 
         reward -= cfg.W_ENERGY * np.sum(action**2)
 
@@ -206,6 +212,11 @@ class FrankaPickPlaceEnv(gym.Env):
             state = self.sim_interface.wait_for_state()
             if np.linalg.norm(state["q_arm"] - cfg.Q_READY) < cfg.TOL:
                 break
+        
+        else:
+            err = state["q_arm"] - cfg.Q_READY
+            stuck = [f"{cfg.ARM_JOINTS[j]}={state['q_arm'][j]:.3f}" for j in np.flatnonzero(np.abs(err)>cfg.TOL)]
+            raise RuntimeError(f"Joints: {stuck} didn't reach their Q_READY states. Distance: {err}")
             
         if self.level == "L1":
             cube_pos = cfg.CUBE_POS_DEFAULT.copy()
@@ -261,7 +272,7 @@ class FrankaPickPlaceEnv(gym.Env):
         
         phi_next = 0.0 if terminated else self._potential()
 
-        reward = self._compute_reward(action, phi_prev, phi_next, self._just_grasped, success)
+        reward = self._compute_reward(action, phi_prev, phi_next, self._just_grasped, success, dropped)
 
         if not ik_output["success"]:
             self._ik_failures += 1
