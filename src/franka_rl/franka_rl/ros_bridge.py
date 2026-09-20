@@ -40,10 +40,6 @@ class SimInterface(Node):
         name_pos = dict(zip(msg.name, msg.position))
         name_vel = dict(zip(msg.name, msg.velocity))
         
-        # Total aperture = sum over both fingers. Each finger travels independently
-        # from the symmetry axis and the split between them depends on where the cube
-        # sits laterally (measured: 0.040 / 0.010 on a centred-looking grasp), so a
-        # single finger is not a measure of how open the gripper is.
         self._gripper_opening = sum(name_pos[j] for j in GRIPPER_JOINTS)
         
         self._q_arm = np.array([name_pos[j] for j in ARM_JOINTS])
