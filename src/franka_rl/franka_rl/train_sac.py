@@ -10,7 +10,7 @@ from stable_baselines3.common.save_util import load_from_zip_file
 from franka_rl.gym_env import FrankaPickPlaceEnv
 
 EPISODE_INFO_KEYS = ("is_success", "is_grasped", "dropped", "min_ee_to_cube",
-                     "sim_dt_mean", "sim_dt_max")
+                     "sim_dt_mean", "sim_dt_max", "min_cube_to_goal", "drop_x", "drop_y")
 
 RESUME_MODEL = "latest.zip"
 RESUME_BUFFER = "latest_replay_buffer.pkl"
@@ -179,8 +179,6 @@ def train_sac():
         total_timesteps=budget,
         callback=callbacks,
         tb_log_name=run_name,
-        # A rich progress bar redrawing into a redirected log file buries the metric
-        # tables under thousands of repainted frames - long runs are started detached.
         progress_bar=sys.stdout.isatty(),
         reset_num_timesteps=not args.resume,
     )
