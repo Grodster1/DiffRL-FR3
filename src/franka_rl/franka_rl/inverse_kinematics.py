@@ -1,5 +1,6 @@
 import pinocchio as pin
 import numpy as np
+import franka_rl.config as cfg
 
 def pose_error(p_cur, R_cur, p_des, R_des):
     """ Position error as a 6D vector: [Pose error (3), Orientation error (3)].
@@ -19,10 +20,21 @@ def dls_step(J, err6, _lambda = 0.05):
     return dq
     
 def clip_to_joint_limits(q, kin):
-    """ Clipping joint position to available model's range """    
+    """ Clipping joint position to available model's range.
+        Added margin because if joint2 reaches its limit it blocks itself
+        and reset() doesn't work."""    
     lower = kin.model.lowerPositionLimit[kin.arm_q_indices]
     upper = kin.model.upperPositionLimit[kin.arm_q_indices]
-    return np.clip(q, lower, upper)
+    return np.clip(q, lower + cfg.CLIP_MARGIN, upper - cfg.CLIP_MARGIN)
+
+def limit_joint_step(q_current, q_target, max_step):
+    """ Scales the whole joint step so no joint moves more than 'max_step'.
+        Scaling instead of per-joint clipping keeps the direction computed by IK."""
+    delta_q = q_target - q_current
+    largest = np.max(np.abs(delta_q))
+    if largest <= max_step:
+        return q_target
+    return q_current + delta_q * (max_step/largest)
 
 def clip_to_workspace(p_des, box):
     """ Clipping position to box workspace.
