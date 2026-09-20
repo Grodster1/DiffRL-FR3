@@ -29,6 +29,8 @@ class FrankaPickPlaceEnv(gym.Env):
         self._success = False
         self._dropped = False
         self._min_ee_to_cube = np.inf
+        self._min_cube_to_goal = np.inf
+        self._drop_xy = np.full(2, np.nan)
         self._step_count = 0
         self._ik_failures = 0
         self._reset_control_period_stats()
@@ -54,15 +56,25 @@ class FrankaPickPlaceEnv(gym.Env):
         z = 0.425
         return np.array([x,y,z])
     
-    def _potential(self):
-        """Computes Potential for Potential-Based Shaping Reward """
+    def _state_cost(self):
+        """Computes State Cost instead of Potential-Based Shaping Reward """
         d_reach = np.linalg.norm(self._last_obs_dict["ee_to_cube"])
         d_transport = np.linalg.norm(self._last_obs_dict["cube_to_goal"])
+        d_xy = np.linalg.norm(self._last_obs_dict["ee_to_cube"][:2])
+        d_z = np.abs(self._last_obs_dict["ee_to_cube"][2])
+        cube_z = self._last_obs_dict["ee_to_cube"][2] + self._last_obs_dict["ee_pos"][2]
+        
+        s1 = 1 - np.clip(d_xy / cfg.R_XY, 0, 1)                                                     # align in XY
+        s2 = s1 * (1 - np.clip(d_z / cfg.R_Z, 0, 1))                                                # align in Z
+        s3 = s2 * (cfg.GRASP_OPENING_MIN < self._last_obs_dict["gripper"] < cfg.GRASP_OPENING_MAX)  # gripped on cube
+        s4 = s3 * np.clip((cube_z - cfg.CUBE_POS_DEFAULT[2]) / cfg.LIFT_MARGIN_ENTER, 0, 1)         # lifted
+        
+        progress = (s1 + s2 + s3 + s4) / 4
         
         phi = -cfg.W_TRANSPORT * d_transport
         
         if not self._last_obs_dict["is_grasped"]:
-            phi -= cfg.W_REACH * d_reach
+            phi -= cfg.W_REACH * d_reach + cfg.W_G*(1-progress)
         
         return phi
     
@@ -92,6 +104,11 @@ class FrankaPickPlaceEnv(gym.Env):
             self._min_ee_to_cube,
             float(np.linalg.norm(self._last_obs_dict["ee_to_cube"]))
         )
+        
+        self._min_cube_to_goal = min(
+            self._min_cube_to_goal,
+            float(np.linalg.norm(self._last_obs_dict["cube_to_goal"]))
+        )
         return obs.normalize(self._last_obs_dict)
 
     def _reset_control_period_stats(self):
@@ -116,7 +133,7 @@ class FrankaPickPlaceEnv(gym.Env):
     def sim_dt_mean(self):
         """ Mean control period so far this episode; `dt` when nothing overruns. """
         return self._sim_dt_sum / self._sim_dt_n if self._sim_dt_n else self.dt
-
+    
     def _get_info(self):
         """ Per-step info. The episode-level flags ("is_success", "is_grasped",
             "min_ee_to_cube") summarize the whole episode, so
@@ -131,18 +148,15 @@ class FrankaPickPlaceEnv(gym.Env):
             "min_ee_to_cube": self._min_ee_to_cube,
             "sim_dt_mean": self.sim_dt_mean,
             "sim_dt_max": self._sim_dt_max,
+            "min_cube_to_goal": self._min_cube_to_goal,
+            "drop_x": float(self._drop_xy[0]),
+            "drop_y": float(self._drop_xy[1])
         }
     
-    def _compute_reward(self, action, phi_prev, phi_next, just_grasped, success, dropped):
-        """ Computes reward additively.
-            Reward is computed based on Potential which uses Potential-Based Shaping Reward
-            R_GRASP is paid once, on the rising edge - paying it per step
-            would make hovering over the goal beat releasing the cube.
-            R_DROP makes the failure terminal net negative: zeroing Phi on termination
-            pays out -Phi_prev on its own, so without it ending the episode early is
-            still worth a little. """
+    def _compute_reward(self, action, just_grasped, success):
+        """ Computes reward additively. It computes dense reward based on state cost"""
 
-        reward = cfg.GAMMA * phi_next - phi_prev
+        reward = self._state_cost()
 
         if just_grasped:
             reward += cfg.R_GRASP
@@ -150,8 +164,8 @@ class FrankaPickPlaceEnv(gym.Env):
         if success:
             reward += cfg.R_SUCCESS
 
-        if dropped:
-            reward += cfg.R_DROP
+        #if dropped:
+            #reward += cfg.R_DROP
 
         reward -= cfg.W_ENERGY * np.sum(action**2)
 
@@ -176,7 +190,7 @@ class FrankaPickPlaceEnv(gym.Env):
                 self._grasped_streak = 0
             if self._grasped_streak >= cfg.N_GRASP_CONFIRM:
                 self._grasped = True
-                self._just_grasped = True
+                self._just_grasped = not self._ever_grasped
                 self._ever_grasped = True
 
         return self._grasped
@@ -205,6 +219,8 @@ class FrankaPickPlaceEnv(gym.Env):
         self._success = False
         self._dropped = False
         self._min_ee_to_cube = np.inf
+        self._min_cube_to_goal = np.inf
+        self._drop_xy = np.full(2, np.nan)
         self._reset_control_period_stats()
 
         for _ in range(cfg.N_SETTLE):
@@ -235,7 +251,7 @@ class FrankaPickPlaceEnv(gym.Env):
         return observation, info
     
     def step(self, action):
-        phi_prev = self._potential()
+        #phi_prev = self._potential()
         action = np.asarray(action, dtype=float)
         state = self.sim_interface.wait_for_state()
         q_current = state["q_arm"]
@@ -249,6 +265,9 @@ class FrankaPickPlaceEnv(gym.Env):
         
         if not ik_output["success"]:
             q_target = q_current
+            
+        q_target = ik.limit_joint_step(q_current, q_target, cfg.MAX_JOINT_VEL * self.dt)
+        
         opening = cfg.GRIPPER_RANGE[1] if action[3] > 0 else cfg.GRIPPER_RANGE[0]
 
         self._record_control_period(self.sim_interface.sim_time())
@@ -262,22 +281,24 @@ class FrankaPickPlaceEnv(gym.Env):
         grasped = self._last_obs_dict["is_grasped"]
         success = self._is_success(state["cube_pos"], state["cube_vel"], grasped)
         dropped = bool(state["cube_pos"][2] < cfg.CUBE_DROP_Z)
+        
+        if dropped and not self._dropped:
+            self._drop_xy = state["cube_pos"][:2].copy()
 
         self._success = success
         self._dropped = dropped
         
         self._step_count += 1
-        terminated = bool(success or dropped)
+        terminated = success
         truncated = bool(self._step_count >= self.max_episode_steps)
         
-        phi_next = 0.0 if terminated else self._potential()
-
-        reward = self._compute_reward(action, phi_prev, phi_next, self._just_grasped, success, dropped)
+        reward = self._compute_reward(action, self._just_grasped, success)
 
         if not ik_output["success"]:
             self._ik_failures += 1
 
         info = self._get_info()
+        
 
         return observation, reward, terminated, truncated, info
 
