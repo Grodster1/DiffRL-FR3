@@ -53,6 +53,7 @@ W_REACH = 1.0       # [P]
 W_TRANSPORT = 1.0   # [P] 
 W_ENERGY = 0.01     # [P] 
 W_G = 0.5
+W_RELEASE = 0.05    # [P] W_RELEASE / (1-GAMMA) must be significantly below R_SUCCESS
 
 # Rewards
 R_GRASP = 1.0       # [P] Once False->True
@@ -61,3 +62,9 @@ R_DROP = -2.0       # [P] must outweigh the shaping paid out by ending early (|P
 
 # Training
 GAMMA = 0.99
+
+# Curriculum
+CURRICULUM_RATE = 0.5
+CURRICULUM_HEIGHT = (0.03, 0.2)
+CURRICULUM_XY_JITTER = 0.1
+
