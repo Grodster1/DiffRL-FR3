@@ -12,7 +12,7 @@ from franka_rl.ros_bridge import SimInterface
 
 class FrankaPickPlaceEnv(gym.Env):
     
-    def __init__(self, dt = 0.05, max_episode_steps = 200, level = 'L1'):
+    def __init__(self, dt = 0.05, max_episode_steps = 200, level = 'L1', curriculum_rate = 0.0):
         xacro_file = "/ws/src/franka_sim/urdf/fr3_gazebo.urdf.xacro"
         urdf_str = strip_finger_mimic(xacro.process_file(xacro_file).toxml())
         with tempfile.NamedTemporaryFile(mode='w', suffix='.urdf', delete=False) as f:
@@ -28,6 +28,7 @@ class FrankaPickPlaceEnv(gym.Env):
         self._ever_grasped = False
         self._success = False
         self._dropped = False
+        self._curriculum_rate = float(curriculum_rate)
         self._min_ee_to_cube = np.inf
         self._min_cube_to_goal = np.inf
         self._drop_xy = np.full(2, np.nan)
@@ -49,6 +50,43 @@ class FrankaPickPlaceEnv(gym.Env):
     def obs_dict(self):
         return self._last_obs_dict
     
+    def _go_to(self, q_target, opening, label):
+        """ Commands a pose, settles, raises loudly if joints don't arrive. """
+        self.sim_interface.publish_arm_command(q_target, self.dt)
+        self.sim_interface.publish_gripper_command(opening, self.dt)
+        
+        for _ in range(cfg.N_SETTLE):
+            self.sim_interface.reserve_t(self.dt)
+            state = self.sim_interface.wait_for_state()
+            if np.linalg.norm(state["q_arm"] - q_target) < cfg.TOL:
+                break
+        else:
+            err = state["q_arm"] - q_target
+            stuck = [f"{cfg.ARM_JOINTS[j]}={state['q_arm'][j]:.3f}" for j in np.flatnonzero(np.abs(err)>cfg.TOL)]
+            raise RuntimeError(f"Joints: {stuck} didn't reach {label}. Distance: {err}")
+        
+    def _sample_release_pose(self):
+        """ EE pose above the goal: goal_pos + [jitter_x, jitter_y, h]. """
+        jitter = self.np_random.uniform(-cfg.CURRICULUM_XY_JITTER, cfg.CURRICULUM_XY_JITTER, size = 2)
+        h = self.np_random.uniform(*cfg.CURRICULUM_HEIGHT)
+        p_ee = self.goal_pos + np.concatenate([jitter, [h]])
+        return ik.clip_to_workspace(p_ee, cfg.WORKSPACE_BOX)
+    
+    def _start_holding_cube(self):
+        p_ee = self._sample_cube_pos()
+        q_place, out = ik.solve_ik(self.kin, cfg.Q_READY, p_ee, self.R_frozen)
+        if not out["success"]:
+            return False
+        
+        state = self._go_to(q_place, cfg.GRIPPER_RANGE[1], "curriculum place pose")
+        p_achieved, _ = self.kin.fk(state["q_arm"])
+        self.sim_interface.set_cube_pose(p_achieved)
+        
+        self.sim_interface.publish_gripper_command(cfg.GRIPPER_RANGE[0], self.dt)
+        for _ in range(cfg.N_CUBE_SETTLE):
+            self.sim_interface.reserve_t(self.dt)
+            
+        
     def _sample_cube_pos(self):
         """ Samples cube's starting position - used for L2. """
         x = self.np_random.uniform(0.4, 0.6)
@@ -63,6 +101,7 @@ class FrankaPickPlaceEnv(gym.Env):
         d_xy = np.linalg.norm(self._last_obs_dict["ee_to_cube"][:2])
         d_z = np.abs(self._last_obs_dict["ee_to_cube"][2])
         cube_z = self._last_obs_dict["ee_to_cube"][2] + self._last_obs_dict["ee_pos"][2]
+        on_goal = (np.linalg.norm(self._last_obs_dict["cube_to_goal"][:2]) < cfg.SUCCESS_XY_TOL) and abs(self._last_obs_dict["cube_to_goal"][2]) < cfg.SUCCESS_Z_TOL
         
         s1 = 1 - np.clip(d_xy / cfg.R_XY, 0, 1)                                                     # align in XY
         s2 = s1 * (1 - np.clip(d_z / cfg.R_Z, 0, 1))                                                # align in Z
@@ -73,8 +112,11 @@ class FrankaPickPlaceEnv(gym.Env):
         
         phi = -cfg.W_TRANSPORT * d_transport
         
-        if not self._last_obs_dict["is_grasped"]:
+        if not (self._last_obs_dict["is_grasped"] or on_goal):
             phi -= cfg.W_REACH * d_reach + cfg.W_G*(1-progress)
+        
+        if on_goal and not self._last_obs_dict["is_grasped"] and self._last_obs_dict["gripper"] > cfg.GRASP_OPENING_MAX:
+            phi += cfg.W_RELEASE
         
         return phi
     
@@ -251,7 +293,6 @@ class FrankaPickPlaceEnv(gym.Env):
         return observation, info
     
     def step(self, action):
-        #phi_prev = self._potential()
         action = np.asarray(action, dtype=float)
         state = self.sim_interface.wait_for_state()
         q_current = state["q_arm"]
