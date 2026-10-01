@@ -311,6 +311,10 @@ EOF
 # baseline losowej polityki - sprawdza, czy chwyt jest w ogole osiagalny
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl random_baseline --level L1 --episodes 100"
 
+# ewaluacja deterministyczna SAC (katalog runu -> latest.zip, albo konkretny .zip); wyniki w evaluation/
+# tylko przy zatrzymanym treningu - oba procesy steruja tym samym Gazebo
+docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl evaluate_sac data/runs/sac_L1_seed0_<data> --episodes 50"
+
 # wyniki: data/runs/sac_<level>_seed<N>_<data>/ - monitor.csv, checkpoints/, tb/
 #   latest.zip + latest_replay_buffer.pkl = punkt wznowienia (nadpisywany co --save-freq)
 docker exec -it franka_sim bash -c "cd /ws && tensorboard --logdir data/runs --bind_all"
