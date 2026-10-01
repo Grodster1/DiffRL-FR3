@@ -8,8 +8,9 @@ CUBE_POS_DEFAULT = np.array([0.5, 0.0, 0.425])
 GOAL_LEFT = np.array([0.0, 0.525, 0.425])
 GOAL_RIGHT = np.array([0.0, -0.525, 0.425])
 WORKSPACE_BOX = np.array([[-0.15, -0.6, 0.42], [0.70, 0.6, 0.65]])
-CLIP_MARGIN = 0.05         # [Z] set to 0.05 rad. It prevents joints from reaching its limit. Joint2 after reaching its limit blocks itself and reset() doesn't work.
-                           # joint2 driven exactly onto its limit locks in DART and ignores commands; mechanism unexplained
+CLIP_MARGIN = 0.05          # [Z] set to 0.05 rad. It prevents joints from reaching its limit. Joint2 after reaching its limit blocks itself and reset() doesn't work.
+                            # joint2 driven exactly onto its limit locks in DART and ignores commands; mechanism unexplained
+GOAL_TABLE_BOUND = 0.125    # [W] half of goal table's side
 
 # Reset
 TOL = 0.05
@@ -37,7 +38,7 @@ R_Z = 0.05
 CUBE_DROP_Z = 0.35        # [W] it means cube has fallen below table level
 SUCCESS_XY_TOL = 0.05     # [W] table at 0.25, cube 0.05 
 SUCCESS_Z_TOL = 0.01      # [W] cube laying on the table has center (Z) in 0.425; tolerated [0.415, 0.435].
-SUCCESS_VEL_EPS = 0.01    # [Z]/[P] DART posts exactly 0.0 (2500 samples);
+SUCCESS_VEL_EPS = 0.01    # [Z]/[P] DART posts exactly 0.0 (2500 samples)
 
 # Observation
 OBS_DIM = 3 + 6 + 1 + 3 + 3 + 1  # EE_pos + ori6D + gripper + ee_to_cube + cube_to_goal + is_grasped
@@ -65,6 +66,6 @@ GAMMA = 0.99
 
 # Curriculum
 CURRICULUM_RATE = 0.5
-CURRICULUM_HEIGHT = (0.03, 0.2)
-CURRICULUM_XY_JITTER = 0.1
+CURRICULUM_HEIGHT = (0.05, 0.2)
+CURRICULUM_XY_JITTER = 0.075
 
