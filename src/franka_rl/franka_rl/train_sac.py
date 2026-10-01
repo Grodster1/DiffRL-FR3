@@ -10,13 +10,14 @@ from stable_baselines3.common.save_util import load_from_zip_file
 from franka_rl.gym_env import FrankaPickPlaceEnv
 
 EPISODE_INFO_KEYS = ("is_success", "is_grasped", "dropped", "min_ee_to_cube",
-                     "sim_dt_mean", "sim_dt_max", "min_cube_to_goal", "drop_x", "drop_y")
+                     "sim_dt_mean", "sim_dt_max", "min_cube_to_goal", "drop_x", 
+                     "drop_y", "curriculum_start")
 
 RESUME_MODEL = "latest.zip"
 RESUME_BUFFER = "latest_replay_buffer.pkl"
 
-def make_env(level, seed, monitor_path=None):
-    env = FrankaPickPlaceEnv(level=level)
+def make_env(level, seed, monitor_path=None, curriculum_rate = 0.0):
+    env = FrankaPickPlaceEnv(level=level, curriculum_rate=curriculum_rate)
     env = Monitor(env, monitor_path, info_keywords=EPISODE_INFO_KEYS)
     env.reset(seed=seed)
 
@@ -106,6 +107,8 @@ def parse_args():
                         help="Random seed (default: 0)")
     parser.add_argument('--timesteps', type=int, default=5000,
                         help="Total timesteps to reach, resume included (default: 5000)")
+    parser.add_argument('--curriculum-rate', type=float, default=cfg.CURRICULUM_RATE,
+                        help=f"Curriculum rate (default: {cfg.CURRICULUM_RATE})")
     parser.add_argument('--tensorboard', action='store_true',
                         help="Log to TensorBoard in <output>/<run_name>/tb (default: disabled)")
     parser.add_argument('--output', type=str, default='data/runs',
@@ -141,7 +144,7 @@ def train_sac():
     checkpoint_dir = run_dir / "checkpoints"
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    env = make_env(args.level, args.seed, monitor_path(run_dir, bool(args.resume)))
+    env = make_env(args.level, args.seed, monitor_path(run_dir, bool(args.resume)), args.curriculum_rate)
     tb_log = str(run_dir / "tb") if args.tensorboard else None
 
     if model_path:
