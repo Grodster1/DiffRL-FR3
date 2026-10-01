@@ -1,0 +1,26 @@
+{
+  "model": "data/runs/sac_L1_seed0_20260921_1331_curriculum_v2/latest.zip",
+  "num_timesteps": 1000000,
+  "mode": "deterministic",
+  "level": "L1",
+  "seed": 1000,
+  "curriculum_rate": 0.0,
+  "wall_time_s": 211.70320312999957,
+  "all": {
+    "episodes": 50,
+    "total_steps": 10000,
+    "success_rate": 0.0,
+    "success_ci95": [
+      0.0,
+      0.07135003417431873
+    ],
+    "grasp_rate": 1.0,
+    "drop_rate": 0.0,
+    "release_attempt_rate": 0.0,
+    "return_mean": -53.993957913888714,
+    "return_std": 1.4902638581120218,
+    "length_mean": 200.0,
+    "missed_final_xy_median": 0.05574425537622636,
+    "ik_failure_rate": 0.0
+  }
+}
