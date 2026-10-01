@@ -40,6 +40,8 @@ def make_env(level="L1", goal=cfg.GOAL_LEFT, seed=0):
     env._ever_grasped = False
     env._success = False
     env._dropped = False
+    env._curriculum_start = False
+    env._curriculum_rate = 0.0
     env._min_ee_to_cube = np.inf
     env._min_cube_to_goal = np.inf
     env._drop_xy = np.full(2, np.nan)
@@ -547,7 +549,7 @@ def test_step_returns_the_gym_five_tuple(kin):
     assert isinstance(terminated, bool) and isinstance(truncated, bool)
     assert set(info) == {"cube_to_goal", "ik_failures", "is_success", "is_grasped",
                          "dropped", "min_ee_to_cube", "sim_dt_mean", "sim_dt_max",
-                         "min_cube_to_goal", "drop_x", "drop_y"}
+                         "min_cube_to_goal", "drop_x", "drop_y", "curriculum_start"}
 
 
 def test_step_commands_the_arm_towards_the_requested_delta(kin, monkeypatch):
