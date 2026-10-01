@@ -11,7 +11,7 @@ def pose_error(p_cur, R_cur, p_des, R_des):
     return np.concatenate([err_pos, err_rot])
 
 def dls_step(J, err6, _lambda = 0.05):
-    """ Computes Dumped Least Sqquares: dq = J.T @ (J@J.T + lambda^2 * I)^-1 @ err6 """
+    """ Computes Dumped Least Squares: dq = J.T @ (J@J.T + lambda^2 * I)^-1 @ err6 """
     JJt = J @ J.T
     A = JJt + _lambda**2 * np.eye(6)
     x = np.linalg.solve(A, err6)
