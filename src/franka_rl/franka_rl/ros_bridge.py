@@ -77,6 +77,16 @@ class SimInterface(Node):
         msg.points = [traj_point]
         self._gripper_pub.publish(msg)
         
+    def wait_for_controllers(self, timeout=10.0):
+        """ Blocks until both trajectory controllers subscribe to our publishers.
+            A command published before initialization is silently dropped, so the first 
+            reset() of a new process never moves an arm that is not already at Q_READY. """
+        deadline = time.monotonic() + timeout
+        while self._arm_pub.get_subscription_count() == 0 or self._gripper_pub.get_subscription_count() == 0:
+            if time.monotonic() > deadline:
+                raise RuntimeError("Trajectory controllers did not subscribe - is bringup running?")
+            rclpy.spin_once(self, timeout_sec=0.01)
+
     def set_cube_pose(self, cube_pos, timeout=5.0):
         if not self.cube_cli.wait_for_service(timeout_sec=timeout):
             raise RuntimeError("Service /world/fr3_world/set_pose unavailable")
@@ -106,14 +116,7 @@ class SimInterface(Node):
         return self._sim_time
 
     def reserve_t(self, dt):
-        """ Waits until the sim clock has advanced by at least `dt`.
-
-            This is a lower bound and nothing here pauses the simulator, so with
-            `real_time_factor=0` every time burned above this layer (IK,
-            observation building, an SAC gradient step) is sim time that elapses
-            outside the loop's control while JTC holds the last command. Returns
-            the sim time actually consumed so callers can measure that overshoot;
-            an upper bound needs phase 2 (`multi_step`). """
+        """ Waits until the sim clock has advanced by at least `dt`."""
 
         start = self.sim_time()
         while (self._sim_time - start) < dt:
