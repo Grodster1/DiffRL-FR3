@@ -28,6 +28,7 @@ class FrankaPickPlaceEnv(gym.Env):
         self._ever_grasped = False
         self._success = False
         self._dropped = False
+        self._curriculum_start = False
         self._curriculum_rate = float(curriculum_rate)
         self._min_ee_to_cube = np.inf
         self._min_cube_to_goal = np.inf
@@ -42,6 +43,7 @@ class FrankaPickPlaceEnv(gym.Env):
         if self._owns_rclpy:
             rclpy.init()
         self.sim_interface = SimInterface()
+        self.sim_interface.wait_for_controllers()
         self.observation_space = gym.spaces.Box(-1.0, 1.0, (cfg.OBS_DIM,), dtype=np.float32)
         self.action_space = gym.spaces.Box(-1.0, 1.0, (4,), dtype=np.float32) # [dx, dy, dz, g]
         _, self.R_frozen = self.kin.fk(cfg.Q_READY)
@@ -50,20 +52,34 @@ class FrankaPickPlaceEnv(gym.Env):
     def obs_dict(self):
         return self._last_obs_dict
     
+    def _solve_ik_path(self, p_to, q_init, step = cfg.ACTION_SCALE):
+        """ Chains ACTION_SCALE-sized IK solves. A single jump of 0.6 m calls the
+            dq_max guard in solve_ik, which exists for per-step use. """
+        q = np.asarray(q_init, dtype=float).copy()
+        p_from, _ = self.kin.fk(q)
+        n = max(1, int(np.ceil(np.linalg.norm(p_to - p_from) / step)))
+
+        for i in range(1, n + 1):
+            q, out = ik.solve_ik(self.kin, q, p_from + (p_to - p_from) * (i / n), self.R_frozen)
+            if not out["success"]:
+                return q, out
+
+        return q, out
+    
     def _go_to(self, q_target, opening, label):
-        """ Commands a pose, settles, raises loudly if joints don't arrive. """
-        self.sim_interface.publish_arm_command(q_target, self.dt)
-        self.sim_interface.publish_gripper_command(opening, self.dt)
+        """ Commands a pose, settles, raises loudly if joints don't arrive."""
+        self.sim_interface.publish_gripper_command(opening, cfg.RESET_DT)
+        self.sim_interface.publish_arm_command(q_target, cfg.RESET_DT)
         
         for _ in range(cfg.N_SETTLE):
             self.sim_interface.reserve_t(self.dt)
             state = self.sim_interface.wait_for_state()
             if np.linalg.norm(state["q_arm"] - q_target) < cfg.TOL:
-                break
-        else:
-            err = state["q_arm"] - q_target
-            stuck = [f"{cfg.ARM_JOINTS[j]}={state['q_arm'][j]:.3f}" for j in np.flatnonzero(np.abs(err)>cfg.TOL)]
-            raise RuntimeError(f"Joints: {stuck} didn't reach {label}. Distance: {err}")
+                return state
+        
+        err = state["q_arm"] - q_target
+        stuck = [f"{cfg.ARM_JOINTS[j]}={state['q_arm'][j]:.3f}" for j in np.flatnonzero(np.abs(err)>cfg.TOL / np.sqrt(err.size))]
+        raise RuntimeError(f"Joints: {stuck} didn't reach {label}. Distance: {err}")
         
     def _sample_release_pose(self):
         """ EE pose above the goal: goal_pos + [jitter_x, jitter_y, h]. """
@@ -73,12 +89,19 @@ class FrankaPickPlaceEnv(gym.Env):
         return ik.clip_to_workspace(p_ee, cfg.WORKSPACE_BOX)
     
     def _start_holding_cube(self):
-        p_ee = self._sample_cube_pos()
-        q_place, out = ik.solve_ik(self.kin, cfg.Q_READY, p_ee, self.R_frozen)
+        p_ee = self._sample_release_pose()
+        q_place, out = self._solve_ik_path(p_ee, cfg.Q_READY)
         if not out["success"]:
             return False
+        try:
+            self._go_to(q_place, cfg.GRASP_OPENING_MAX, "curriculum place pose")
+        except RuntimeError:
+            return False
         
-        state = self._go_to(q_place, cfg.GRIPPER_RANGE[1], "curriculum place pose")
+        for _ in range(cfg.N_CUBE_SETTLE):
+            self.sim_interface.reserve_t(self.dt)
+        
+        state = self.sim_interface.wait_for_state()    
         p_achieved, _ = self.kin.fk(state["q_arm"])
         self.sim_interface.set_cube_pose(p_achieved)
         
@@ -86,6 +109,16 @@ class FrankaPickPlaceEnv(gym.Env):
         for _ in range(cfg.N_CUBE_SETTLE):
             self.sim_interface.reserve_t(self.dt)
             
+        self._ever_grasped = True
+        
+        for _ in range(cfg.N_GRASP_CONFIRM + 1):
+            self.sim_interface.reserve_t(self.dt)
+            self._get_obs()
+
+        if not self._grasped:
+            self._ever_grasped = False
+            self._grasped_streak = 0
+        return self._grasped
         
     def _sample_cube_pos(self):
         """ Samples cube's starting position - used for L2. """
@@ -102,6 +135,8 @@ class FrankaPickPlaceEnv(gym.Env):
         d_z = np.abs(self._last_obs_dict["ee_to_cube"][2])
         cube_z = self._last_obs_dict["ee_to_cube"][2] + self._last_obs_dict["ee_pos"][2]
         on_goal = (np.linalg.norm(self._last_obs_dict["cube_to_goal"][:2]) < cfg.SUCCESS_XY_TOL) and abs(self._last_obs_dict["cube_to_goal"][2]) < cfg.SUCCESS_Z_TOL
+        bounds_xy = np.abs(self._last_obs_dict["cube_to_goal"][:2])
+        is_in_goal_bounds_xy = np.all(bounds_xy < cfg.GOAL_TABLE_BOUND)
         
         s1 = 1 - np.clip(d_xy / cfg.R_XY, 0, 1)                                                     # align in XY
         s2 = s1 * (1 - np.clip(d_z / cfg.R_Z, 0, 1))                                                # align in Z
@@ -112,7 +147,7 @@ class FrankaPickPlaceEnv(gym.Env):
         
         phi = -cfg.W_TRANSPORT * d_transport
         
-        if not (self._last_obs_dict["is_grasped"] or on_goal):
+        if not (self._last_obs_dict["is_grasped"] or is_in_goal_bounds_xy):
             phi -= cfg.W_REACH * d_reach + cfg.W_G*(1-progress)
         
         if on_goal and not self._last_obs_dict["is_grasped"] and self._last_obs_dict["gripper"] > cfg.GRASP_OPENING_MAX:
@@ -192,7 +227,8 @@ class FrankaPickPlaceEnv(gym.Env):
             "sim_dt_max": self._sim_dt_max,
             "min_cube_to_goal": self._min_cube_to_goal,
             "drop_x": float(self._drop_xy[0]),
-            "drop_y": float(self._drop_xy[1])
+            "drop_y": float(self._drop_xy[1]),
+            "curriculum_start": self._curriculum_start
         }
     
     def _compute_reward(self, action, just_grasped, success):
@@ -206,12 +242,22 @@ class FrankaPickPlaceEnv(gym.Env):
         if success:
             reward += cfg.R_SUCCESS
 
-        #if dropped:
-            #reward += cfg.R_DROP
-
         reward -= cfg.W_ENERGY * np.sum(action**2)
 
         return reward
+    
+    def _standard_start(self):
+        self._go_to(cfg.Q_READY, cfg.GRIPPER_RANGE[1], "Q_READY")
+        if self.level == "L1":
+            cube_pos = cfg.CUBE_POS_DEFAULT.copy()
+        else:
+            cube_pos = self._sample_cube_pos()
+
+        self.goal_pos = self._sample_goal_cube_pos()        
+        self.sim_interface.set_cube_pose(cube_pos)
+        
+        for _ in range(cfg.N_CUBE_SETTLE):
+            self.sim_interface.reserve_t(self.dt)
     
     def _update_grasped(self, ee_to_cube, cube_pos, gripper_opening):
         """ Checks whether cube is being held using _grasped_streak tracking
@@ -250,8 +296,6 @@ class FrankaPickPlaceEnv(gym.Env):
         """ Sequence: move away arm -> spawn cube """
         
         super().reset(seed=seed)
-        self.sim_interface.publish_gripper_command(cfg.GRIPPER_RANGE[1], cfg.RESET_DT)
-        self.sim_interface.publish_arm_command(cfg.Q_READY, cfg.RESET_DT)
         self._step_count = 0
         self._ik_failures = 0
         self._grasped_streak = 0
@@ -260,32 +304,18 @@ class FrankaPickPlaceEnv(gym.Env):
         self._ever_grasped = False
         self._success = False
         self._dropped = False
+        self._reset_control_period_stats()
+         
+        self._standard_start()
+        self._curriculum_start = False
+        if self.np_random.random() < self._curriculum_rate:
+            self._curriculum_start = self._start_holding_cube()
+            if not self._curriculum_start:
+                self._standard_start()
+                
         self._min_ee_to_cube = np.inf
         self._min_cube_to_goal = np.inf
         self._drop_xy = np.full(2, np.nan)
-        self._reset_control_period_stats()
-
-        for _ in range(cfg.N_SETTLE):
-            self.sim_interface.reserve_t(self.dt)
-            state = self.sim_interface.wait_for_state()
-            if np.linalg.norm(state["q_arm"] - cfg.Q_READY) < cfg.TOL:
-                break
-        
-        else:
-            err = state["q_arm"] - cfg.Q_READY
-            stuck = [f"{cfg.ARM_JOINTS[j]}={state['q_arm'][j]:.3f}" for j in np.flatnonzero(np.abs(err)>cfg.TOL)]
-            raise RuntimeError(f"Joints: {stuck} didn't reach their Q_READY states. Distance: {err}")
-            
-        if self.level == "L1":
-            cube_pos = cfg.CUBE_POS_DEFAULT.copy()
-        else:
-            cube_pos = self._sample_cube_pos()
-        
-        self.sim_interface.set_cube_pose(cube_pos)
-        self.goal_pos = self._sample_goal_cube_pos()
-
-        for _ in range(cfg.N_CUBE_SETTLE):
-            self.sim_interface.reserve_t(self.dt)
             
         observation = self._get_obs()
         info = self._get_info()
