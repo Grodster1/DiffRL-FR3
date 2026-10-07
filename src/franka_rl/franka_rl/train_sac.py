@@ -119,12 +119,14 @@ def parse_args():
                         help="Steps between resume-point saves (default: 10000)")
     parser.add_argument('--buffer-size', type=int, default=1_000_000,
                         help="Replay buffer capacity (default: 1000000)")
+    parser.add_argument('--checkpoint-freq', type=int, default=20000,
+                        help="Steps between policy checkpoints (default: 20000)")
 
     return parse_checked(parser.parse_args())
 
 def parse_checked(args):
-    if args.save_freq < 1:
-        raise ValueError("--save-freq must be positive")
+    if args.save_freq < 1 or args.checkpoint_freq < 1:
+        raise ValueError("Both --save-freq and --checkpoint-freq must be positive")
 
     return args
 
@@ -172,7 +174,7 @@ def train_sac():
 
     callbacks = [
         CheckpointCallback(
-            save_freq=max(args.timesteps // 5, 1),
+            save_freq=args.checkpoint_freq,
             save_path=str(checkpoint_dir)
         ),
         ResumePointCallback(args.save_freq, run_dir, verbose=1),
