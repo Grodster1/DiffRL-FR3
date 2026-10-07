@@ -290,33 +290,15 @@ docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash; cd /ws && 
 # wznowienie po padzie kontenera - --timesteps to CEL laczny, nie dorzucany budzet
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl train_sac --timesteps 300000 --resume data/runs/sac_L1_seed0_<data>"
 
-# podsumowanie monitor.csv blokami po 25 epizodow (z hosta; domyslnie najnowszy przebieg, albo podaj katalog)
-# min_d max > 0.2028 = zepsuty reset/fizyka; dt_max 1-3 s tylko przy zapisach co --save-freq
-python3 - data/runs/<run> <<'EOF'
-import csv, glob, sys, os
-run = sys.argv[1] if len(sys.argv) > 1 and os.path.isdir(sys.argv[1]) else max(glob.glob("data/runs/sac_*"), key=os.path.getmtime)
-rows = []
-for path in sorted(glob.glob(f"{run}/*monitor.csv"), key=os.path.getmtime):
-    f = open(path); f.readline(); rows += list(csv.DictReader(f))
-T = lambda rs, k: sum(r[k] == "True" for r in rs)
-print(f"{run}: {len(rows)} epizodow, {sum(int(r['l']) for r in rows)} krokow | grasp {T(rows,'is_grasped')} drop {T(rows,'dropped')} success {T(rows,'is_success')}")
-print(f"{'epizody':>9} {'return':>7} {'grasp':>5} {'drop':>4} {'min_d med':>9} {'best':>6} {'max':>6} {'<5cm':>4} {'<2cm':>4} {'dt_max':>6}")
-for i in range(0, len(rows), 25):
-    rs = rows[i:i+25]; md = sorted(float(r["min_ee_to_cube"]) for r in rs)
-    print(f"{i:4d}-{i+len(rs):<4d} {sum(float(r['r']) for r in rs)/len(rs):7.2f} {T(rs,'is_grasped'):5d} {T(rs,'dropped'):4d} "
-          f"{md[len(md)//2]:9.4f} {md[0]:6.3f} {md[-1]:6.3f} {sum(x<0.05 for x in md):4d} {sum(x<0.02 for x in md):4d} "
-          f"{max(float(r['sim_dt_max']) for r in rs)*1e3:6.0f}")
-EOF
-
 # baseline losowej polityki - sprawdza, czy chwyt jest w ogole osiagalny
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl random_baseline --level L1 --episodes 100"
 
 # ewaluacja deterministyczna SAC (katalog runu -> latest.zip, albo konkretny .zip); wyniki w evaluation/
-# tylko przy zatrzymanym treningu - oba procesy steruja tym samym Gazebo
+
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl evaluate_sac data/runs/sac_L1_seed0_<data> --episodes 50"
 
 # wyniki: data/runs/sac_<level>_seed<N>_<data>/ - monitor.csv, checkpoints/, tb/
-#   latest.zip + latest_replay_buffer.pkl = punkt wznowienia (nadpisywany co --save-freq)
+
 docker exec -it franka_sim bash -c "cd /ws && tensorboard --logdir data/runs --bind_all"
 ```
 
