@@ -47,8 +47,8 @@ Metryki porównawcze: skuteczność zadania (success rate), efektywność próbk
 |---|---|
 | 1–2 | Przegląd literatury + konfiguracja środowiska - **zamknięte** |
 | 3–4 | Implementacja środowiska symulacyjnego (scena P&P, węzły ROS 2, 3 poziomy trudności) - **zamknięte** (otwarta tylko faza 2 krokowania, `multi_step`) |
-| 5–6 | Implementacja i trening SAC oraz PPO ← **in progress** |
-| 7–8 | Zbiór demonstracji + trening Diffusion Policy - zbiór **zebrany z wyprzedzeniem** (100 demo L2, 07.09.2026); zostaje trening |
+| 5–6 | Implementacja i trening SAC oraz PPO ← **in progress** - SAC **L1 zamknięty** (04.10.2026, ewaluacja deterministyczna 50/50); następny SAC L2; PPO nieruszone |
+| 7–8 | Zbiór demonstracji + trening Diffusion Policy - zbiory z 07/09.09 **nieaktualne** (zebrane przed `limit_joint_step`), do zebrania od nowa na L1 i L2; pakiet `franka_diffusion` założony (08.10.2026) |
 | 9–10 | Eksperymenty porównawcze + pisanie pracy |
 
 ---
@@ -81,7 +81,24 @@ Wariant **state-based** (oracle state z Gazebo), wektor ~20–30 wymiarów:
 a = (Δx, Δy, Δz, g) ∈ [-1, 1]⁴
 ```
 
-- Skalowanie: max **5 cm/krok** przy polityce **10–20 Hz** (≈ max 1 m/s EE) - limit bezpieczeństwa + identyczna dynamika dla wszystkich metod.
+- Skalowanie: nominalnie `ACTION_SCALE` = **5 cm na oś na krok** przy `dt` = 50 ms (20 Hz).
+  **Faktyczny ruch EE to 1–3 cm/krok** (zmierzone 10.2026), bo wąskim gardłem jest limit
+  prędkości stawów (`MAX_JOINT_VEL` = 1.0 rad/s → `|Δq| ≤ 0.05` rad/krok, patrz „Tor sterowania"),
+  a nie `ACTION_SCALE`. Pełna akcja jednej osi daje (kinematycznie, jeden krok):
+
+  | Poza | ±x | ±y | ±z | przekątna XYZ (zadane 8.7) |
+  |---|---|---|---|---|
+  | `Q_READY` | 1.6 | 2.7 | 1.6 | 1.7 |
+  | nad kostką L1 | 1.4–1.6 | 2.7 | 1.3–1.5 | 1.1 |
+  | połowa transportu | 2.0–2.2 | 2.7–2.8 | 1.5–1.6 | 1.3 |
+  | nad celem lewym | 3.8–4.3 | **0.5–0.8** | 1.1–1.5 | 0.6 |
+
+  W symulacji transport idzie ~2.2 cm/krok (staw ~0.04 rad/krok), zgodnie z tabelą. Skutek dla
+  polityki: powyżej |a| ≈ 0.3–0.5 akcja w praktyce wybiera tylko kierunek, długość kroku ustala
+  limit stawów. Ruch w `y` nad celem jest ~5x wolniejszy niż w `x` - to poza, w której joint1
+  prawie się nie obraca (patrz „Tor sterowania", poza nad celem). W pracy opisywać jako
+  **ograniczenie prędkości stawów**, nie przestrzeni akcji. Wcześniejszy zapis „max 5 cm/krok
+  (≈ 1 m/s EE)" był prawdziwy tylko przed wprowadzeniem `limit_joint_step`.
 - Chwytak `g`: ciągłe wyjście sieci, interpretacja **binarna z progiem** (wzór: FurnitureBench), żeby polityka nie trzepotała chwytakiem.
 - Uzasadnienie delta-EE: task space = akcje w przestrzeni zadania, wyższa efektywność próbkowa (Matas 2018, Martín-Martín 2019, Zhu 2020); position control > velocity control dla DP (Chi 2023).
 - **Opcja zapasowa: delta joint position (7D)** - zero IK, brak problemu osobliwości; literatura pokazuje że bywa lepsza (Effective Tuning Strategies, arXiv:2410.01220 - delta-EE często narusza ograniczenia IK).
@@ -92,6 +109,8 @@ a = (Δx, Δy, Δz, g) ∈ [-1, 1]⁴
 Polityka (ΔEE @ 10–20 Hz)
   → clip akcji + clip do workspace box (x∈[-0.15,0.7], y∈[-0.6,0.6], z∈[0.42,0.65])
   → IK: damped least-squares na jakobianie (pinocchio), q̇ = Jᵀ(JJᵀ+λ²I)⁻¹·err
+  → clip do limitów stawów z marginesem CLIP_MARGIN = 0.05 rad
+  → limit_joint_step: cały krok stawów skalowany tak, by max |Δq| ≤ MAX_JOINT_VEL·dt = 0.05 rad
   → joint_trajectory_controller (jednopunktowa trajektoria, time_from_start ≈ dt)
   → gz_ros2_control (interfejs pozycyjny) → Gazebo
   → obserwacje wracają do polityki
@@ -121,6 +140,33 @@ Polityka (ΔEE @ 10–20 Hz)
   (ciekawa statystyka porównawcza DP vs RL) - licznik `ik_failures` w `info` wrappera.
 - JTC zamiast forward_position_controller - interpolacja między komendami = gładszy ruch, istotne przy metryce smoothness.
 - **Zasada uczciwości porównania:** identyczny action space, identyczny kontroler i konfiguracja dla RL, DP **i eksperta zbierającego demonstracje** (ekspert nagrywa sekwencje (obs, ΔEE, g) wykonywane tym samym torem - NIE surowe plany MoveIt).
+- **`limit_joint_step` + `MAX_JOINT_VEL = 1.0` rad/s zostają (decyzja 08.10.2026).** Wprowadzone
+  jako naprawa ucieczki `joint2` do limitu (pomiar 13.09: przy 1.0 rad/s przestrzelenie 0.000,
+  od ~2 rad/s ucieczka do twardego ogranicznika i blokada, patrz „Znane problemy" pkt 1).
+  Skalowanie całego kroku, a nie przycinanie per staw, zachowuje kierunek wyliczony przez IK.
+  Od wdrożenia **zero blokad** w ~700k kroków treningu (runy `_curriculum_v2` i
+  `sac_L1_seed0_20261004_1256`). Koszt: ruch EE 2–3x wolniejszy (tabela w „Przestrzeń akcji"),
+  dłuższe epizody w krokach; na wyuczalność wpływu nie widać (SAC L1 = 100%). Podniesienie
+  limitu do realnych limitów FR3 (~2–2.6 rad/s) **odpada** - to dokładnie strefa ucieczki.
+  Zmiana w tej chwili unieważniłaby SAC L1 i nowe demonstracje (wspólny tor sterowania).
+  W pracy: świadome ograniczenie prędkości stawów, wspólne dla SAC, eksperta i DP; ~40% limitu
+  FR3 to typowy zapas bezpieczeństwa.
+- **Strażnik `dq_max = 1.0` w `solve_ik` działa tylko dla małych kroków.** Pojedyncze
+  wywołanie na dystans ~0.6 m (start curriculum z `Q_READY` nad cel) zwraca `reason: "no-op"`
+  w **iteracji 0** dla 200/200 próbek - pierwszy krok DLS przekracza 1 rad. Duże skoki robi
+  `_solve_ik_path` w `gym_env`: łańcuch rozwiązań co `ACTION_SCALE`, każde z poprzedniego `q`
+  (200/200 L, 100/100 P, błąd TCP ≤ 0.98 mm). Odrzucone: `dq_max=np.inf` - też zbiega, ale na
+  **inną gałąź przestrzeni zerowej** (różnica do 0.34 rad na stawie przy tej samej pozie TCP),
+  czyli start w konfiguracji, do której polityka sama nigdy nie dojedzie.
+- **Poza nad celem bocznym jest skręcona (zaobserwowane 10.2026).** Przy marszu DLS z `Q_READY`
+  nad cel lewy `joint1` kończy na ok. **−0.2 rad** (kierunek do celu: +1.57), sięgnięcie w bok
+  robią `joint3` (~+1.18), `joint5` i `joint7`. Przyczyna: zamrożona orientacja - obrót `joint1`
+  o 90° obraca chwytak wokół pionu, co musiałby skompensować `joint7`, a DLS wybiera najmniejszą
+  zmianę stawów w każdym kroku. Kinematycznie poprawne i z zapasem: zejście do blatu (z = 0.425)
+  bez porażek IK, min. zapas do limitu 0.83 rad, ogniwa nad blatami. Dla toru L2 (9 pozycji
+  kostki x 2 cele, pełna sekwencja) 18/18 bez porażek IK, min. zapas 0.54 rad. Znane
+  ograniczenie DLS z zamrożoną orientacją, do opisania w pracy; konsekwencja to wolny ruch w `y`
+  nad celem.
 
 ### Chwytak - ostrzeżenia praktyczne (decyzja podjęta)
 
@@ -197,14 +243,105 @@ Polityka (ΔEE @ 10–20 Hz)
   nie kolejnym przebiegiem.
 - **`monitor.csv` nie jest dopisywany, tylko nadpisywany** przez `Monitor`, więc każde wznowienie
   dostaje własny plik `resumeN.monitor.csv`. `load_results()` globuje `*monitor.csv` i widzi komplet.
+- **Rozgałęzienie eksperymentu z cudzych wag = nowy katalog, nie `--resume` w starym (09.2026).**
+  `--resume` czyta i zapisuje w tym samym katalogu, więc pierwszy punkt wznowienia nadpisałby
+  `latest.zip`/bufor źródłowego runu, a nowe monitory skleiłyby się ze starymi w jedną krzywą.
+  Praktyka: nowy katalog z samym `latest.zip` skopiowanym ze źródła → `--resume` na nowy
+  katalog startuje z pustym buforem (brak pliku bufora = pusty bufor), cała reszta zapisuje się
+  osobno. Flaga `--no-buffer` była na chwilę dodana i usunięta - ten sam efekt bez kodu.
+  Uwaga: przy wznowieniu z pustym buforem i licznikiem 900k warunek `learning_starts=1000` jest
+  dawno spełniony, więc gradient leci od pierwszego kroku na buforze z kilkoma przejściami.
+- **Checkpointy wag: `--checkpoint-freq` (domyślnie 20000), niezależnie od celu (10.2026).**
+  Wcześniej `save_freq = timesteps // 5` liczyło się od **celu**, więc run `_curriculum_v2`
+  (cel 1M, budżet 100k) nie zapisał **żadnego** checkpointu i nie dało się ewaluować faz, w których
+  polityka odkładała. Checkpoint to same wagi (~3 MB, `save_replay_buffer=False`), punkt
+  wznowienia to wagi + bufor. Licznik `CheckpointCallback` startuje od zera w każdym procesie,
+  więc po wznowieniu siatka się przesuwa (np. 280k → 310k); nazwy plików mają łączny licznik.
 
 ### Reward i RL - ustalenia
 
 - Sparse reward dla czystego SAC/PPO nierozwiązywalny w budżecie → **shaped reward** dla obu algorytmów: kara odległości EE–obiekt + bonus za chwyt + kara odległości obiekt–cel + bonus sukcesu + mała kara ‖a‖².
+- **PBRS (Ng i in. 1999) odrzucone na rzecz gęstego kosztu stanu (09.2026).** Trzy niezależne
+  przyczyny: (1) przy γ < 1 stanie w miejscu płaci `F(s,s) = −(1−γ)Φ(s) > 0`, tym więcej, im
+  dalej od celu - artefakt większy niż użyteczny sygnał; (2) gwarancja wymaga `Φ(terminal)=0`, więc
+  wcześniejsze zakończenie wypłacało nagromadzone kształtowanie (łata `R_DROP`); (3) skok za chwyt
+  przez wyłączenie członu sięgania wynosił ~0.0007. Ostatni run z PBRS
+  (`sac_L1_seed0_20260914_1419`, 178k kroków): **zero chwytów**. Pełny opis: notatki autora
+  (`Notes/Wnioski z przebiegu treningu SAC L1.md`).
+- **Obecna nagroda: koszt stanu (`_state_cost` w `gym_env`).**
+  `r = C(s') + R_GRASP·[pierwszy chwyt] + R_SUCCESS·[sukces] − W_ENERGY·‖a‖²`,
+  `C = −W_TRANSPORT·d_transport − [¬grasped ∧ ¬nad_stołem_celu]·(W_REACH·d_reach + W_G·(1−progress)) + W_RELEASE·[na celu ∧ ¬grasped ∧ chwytak otwarty]`.
+  `progress` = średnia łańcucha 4 etapów chwytu (XY → Z → palce w oknie → uniesienie), każdy
+  mnożony przez poprzedni, więc kolejności nie da się obejść. Upuszczenie nie kończy epizodu
+  (`R_DROP` nieużywane). `W_RELEASE` = 0.05 to premia za stan, więc farmienie ograniczone przez
+  `W_RELEASE/(1−γ)` = 5 ≪ `R_SUCCESS` = 20.
+- **Klif zwolnienia - główna przyczyna, dla której SAC nie odkładał (diagnoza 09.2026).**
+  Człon sięgania wracał zawsze, gdy kostka nie była trzymana i nie leżała w tolerancji celu
+  (5 cm). Zmierzone w buforze (150k przejść): trzymanie kostki nad celem −0.14/krok, kostka
+  spadająca −0.31/krok, kostka **leżąca na stole celu 6 cm od środka −0.79/krok**. Otwarcie
+  opłacało się więc tylko przy P(sukces) > ~0.66, a empirycznie było ~0.4 (jitter startu ±7.5 cm
+  na oś vs tolerancja 5 cm) - **wiszenie z kostką było racjonalną strategią**, nie błędem
+  uczenia. Ten sam klif karał już samo opuszczanie kostki na blat poza tolerancją (gaśnie
+  `is_grasped` poniżej 0.435), stąd wiszenie ~10 cm nad celem. Naprawa: człon sięgania nie wraca,
+  dopóki środek kostki jest w rzucie stołu celu: `|Δx|, |Δy| < GOAL_TABLE_BOUND = 0.125` [W]
+  (kwadrat, nie koło - stół jest prostopadłościanem; `z` nie jest sprawdzane, bo stół to pełna
+  bryła od podłogi, więc środek kostki w jego rzucie nie może być poniżej blatu). Po zmianie
+  kostka obok celu kosztuje **−0.09/krok** (zmierzone w buforze), czyli tyle co trzymanie.
+  Odrzucone: dodatkowa premia za „kostkę nad stołem" - żeby zrównoważyć −0.65/krok, musiałaby
+  dać 0.65/(1−γ) = 65 > `R_SUCCESS` (farmienie), a objęcie nią trzymanej kostki nagradzałoby
+  właśnie wiszenie. Koszt: odłożona obok celu kostka nie daje już sygnału do ponownego chwytu
+  poza `d_transport` (świadomie zaakceptowane).
+- **Pesymizm krytyka wobec rzadkiej akcji (run `sac_L1_seed0_20260921_1331`, 900k kroków bez
+  curriculum).** Chwyt opanowany (912/1012 epizodów), sukces ~5.5% w monitorze, **0/50 w
+  ewaluacji deterministycznej**. Tylko **55 z 900k** przejść miało otwarte palce nad celem; sonda
+  krytyka w stanach „kostka trzymana nad celem": `Q(wymuszone otwarcie) ≈ −29` vs
+  `Q(polityka) ≈ −7`, akcja chwytaka w polityce deterministycznej ~−0.6 (nigdy nie otwiera).
+  Pułapka off-policy: akcja rzadka w buforze → zaniżone Q → aktor jej nie wybiera → bufor się nie
+  zapełnia. Więcej kroków tego nie naprawi. **TQC odrzucone** - dokłada pesymizmu, a problemem
+  jest niedoszacowanie, nie przeszacowanie.
+- **Reverse curriculum (Florensa i in. 2017) - mieszany rozkład stanów startowych w jednym runie
+  (09-10.2026).** Z prawdopodobieństwem `--curriculum-rate` epizod startuje z kostką w chwytaku
+  nad celem (`_start_holding_cube`: `_solve_ik_path` → `_go_to` z palcami w `GRASP_OPENING_MAX` →
+  teleport kostki w osiągnięty TCP → zamknięcie → potwierdzenie chwytu przez `N_GRASP_CONFIRM+1`
+  kroków symulacji); poza tym start standardowy. Nieudany start → zwykły start, a flagi chwytu
+  wracają do stanu sprzed próby. `_just_grasped` nie odpala (`_ever_grasped` ustawione przed
+  potwierdzeniem), więc `R_GRASP` nie jest wypłacane za darmo. Parametry: `CURRICULUM_HEIGHT` =
+  (0.05, 0.2) m nad celem, `CURRICULUM_XY_JITTER` = 0.075 m. Flaga `curriculum_start` w `info`
+  i `monitor.csv`.
+  - **Nie osobna faza treningu**, bo faza „tylko odkładanie" + faza „całe zadanie" to ryzyko
+    katastrofalnego zapominania i brak łączenia umiejętności.
+  - **Wpływ na porównanie z DP:** brak trajektorii eksperta (to nie imitacja), rozkład ewaluacji
+    bez zmian (`curriculum_rate = 0`). W metodzie pracy trzy zdania: co, z jakim
+    prawdopodobieństwem, że ewaluacja startuje standardowo. Run 1331 = ablacja „bez curriculum".
+  - **Analiza:** `is_grasped` (zatrzask) i `min_cube_to_goal` w epizodach curriculum są z
+    definicji zawyżone - wskaźniki pełnego zadania liczyć **tylko z `curriculum_start == False`**.
+  - **Pierwsza próba nieudana (`_curriculum_v2`, wagi 900k, rate 0.5, nagroda jeszcze z klifem):**
+    odkładanie z curriculum działało do ~30k kroków (otwarcia nad celem 25%), potem zanik do 0%
+    i wywożenie kostki poza stół. Po poprawce klifu ten sam start z wag 900k: sukces w monitorze
+    rósł, ale **0/50 deterministycznie** - polityka oscylowała (otwarcia w porcjach po 10k
+    kroków: 16→3→1→18→3→5→15→0.4%), a odziedziczony aktor dalej zamykał.
+  - **Run od zera z curriculum - SUKCES (`sac_L1_seed0_20261004_1256`, rate 0.2, 600k kroków).**
+    Odkładanie z curriculum działało od początku (27–67% sukcesów w epizodach curriculum przy
+    ~0% chwytów w pełnym zadaniu do 230k). Chwyt pojawił się ~280–320k, a sukces pełnego zadania
+    skoczył **z 0% do 91% w ~60k kroków** i trzymał się 91–96% do końca. **Ewaluacja
+    deterministyczna checkpointu 600k: 50/50 (95% CI 93–100%), 69 kroków na epizod.**
+    Interpretacja (do wyników pracy): agent nauczył się odkładania, zanim umiał chwytać, więc
+    chwyt tylko połączył gotowe fragmenty - dokładnie mechanizm reverse curriculum. Run 900k
+    nauczył się chwytu, nie widząc ani jednego udanego odłożenia, i utknął w wiszeniu.
+  - **Zachowanie nauczonej polityki:** sonda checkpointu 430k - nisko nad celem polityka
+    podnosi kostkę i nie puszcza, otwiera dopiero z ~10 cm. **Zrzuca kostkę zamiast ją
+    odstawiać** (sukces wymaga tylko spoczynku w tolerancji). Ekspert (i DP) odstawia - różnica
+    stylu do opisania, ryzykowne na prawdziwym robocie.
 - Kara ‖a‖² w nagrodzie RL: tak (standard, cytat panda-gym/Fetch). **Żadnych filtrów dolnoprzepustowych na akcjach** u żadnej metody - smoothness raportowana z surowych trajektorii.
 - SAC+HER możliwy jako eksperyment dodatkowy (tylko off-policy; SB3 `HerReplayBuffer`). PPO nie wspiera HER.
 - Oczekiwanie: SAC 5–10x efektywniejszy próbkowo niż PPO; PPO może nie zdążyć na L2/L3 - to też jest wynik (metryka efektywności próbkowej).
-- Curriculum: trening L2 startujący z wag L1 - element metodologii.
+- ~~Curriculum: trening L2 startujący z wag L1~~ - **zmienione (10.2026):** L2 trenowane
+  **od zera tym samym przepisem co L1** (ta sama nagroda, `--curriculum-rate 0.2`, checkpointy co
+  20k), żeby w pracy stało „jedna metoda rozwiązuje oba poziomy". Polityka L1 to w praktyce jedna
+  trajektoria, więc zysk z transferu niepewny; transfer ewentualnie jako osobny eksperyment.
+  Budżet: cel 1.5M (~10 h przy ~43 krokach/s), kryterium przerwania ustalone z góry.
+  **Uwaga:** `config.CURRICULUM_RATE` = 0.5 (domyślna wartość flagi), a raportowany run L1 użył
+  jawnie 0.2. Run bazowy bez curriculum wymaga jawnego `--curriculum-rate 0`.
 
 ### Diffusion Policy - ustalenia
 
@@ -227,10 +364,68 @@ Polityka (ΔEE @ 10–20 Hz)
   nieczytelny, bo `REL_SCALE`/`WORKSPACE_BOX` mogą się zmienić. Zapisywane są wyłącznie epizody
   udane; `episodes.jsonl` i `summary.json` trzymają wszystkie próby, żeby `success_rate` eksperta
   pozostał mierzalny.
+- **Zbiory z 07.09 i 09.09.2026 są NIEAKTUALNE (10.2026).** Zebrane przed `limit_joint_step`
+  i zmianami resetu - akcje z nich wykonane w obecnym `step()` nie odtworzą tych trajektorii, a
+  zasada uczciwości wymaga jednego toru dla eksperta, SAC i DP. Zostają na dysku jako historia,
+  **nie trenować na nich DP**. Nowe zbiory: L1 i L2.
+- **Budżety faz eksperta przeliczone (08.10.2026).** Stare budżety zakładały ruch 5 cm/krok;
+  po `limit_joint_step` ekspert padał w `TRANSPORT` 13/13 na L1 (44 kroki przy budżecie 40),
+  na L2 także w `APPROACH` (do 33 przy 30). Pomiar na 16 losowych epizodach L2 z luźnymi
+  budżetami: 16/16 sukcesów, max faz `APPROACH` 33, `DESCEND` 13, `LIFT` 12, `TRANSPORT` 55,
+  `PLACE` 11, najdłuższy epizod 129 kroków. Nowe budżety ~1.35x max: `APPROACH` 45, `DESCEND` 18,
+  `LIFT` 18, `TRANSPORT` 75, `PLACE` 16 (suma 192 < 200, asercja w `collect_demos` przechodzi).
+- **Ekspert jest wolniejszy od SAC:** ~105 kroków na L1 wobec 69 u SAC. SAC nie wznosi się do
+  `HOVER_Z` = 0.55 i zrzuca kostkę z ~10 cm. DP będzie naśladował wolniejszego eksperta - przy
+  porównaniu długości epizodu i ścieżki to efekt źródła danych, nie metody.
+- **Na L1 zbiór to praktycznie jedna trajektoria.** Ekspert jest w pełni deterministyczny, a scena
+  L1 stała, więc 100 demo różni się tylko szumem fizyki. DP nie zobaczy stanów obok tej
+  trajektorii (przesunięcie rozkładu przy rolloucie). Jeśli rollouty DP na L1 będą się rozjeżdżać:
+  wstrzykiwanie szumu do akcji **wykonywanych** przy zapisie **czystej** akcji eksperta
+  (Laskey i in. 2017). Na zapas nie dodawane.
+- **Pakiet `franka_diffusion` (08.10.2026):** osobny pakiet `ament_python`, nie podkatalog
+  `franka_rl`. Trening (dataset, model, DDPM) bez ROS - czyta tylko `data/demos/`. Jedynie
+  `eval.py` importuje `franka_rl.gym_env` (rollout), więc zależność idzie w jedną stronę:
+  `franka_diffusion → franka_rl` (`exec_depend`). `torch`/`diffusers` celowo poza `package.xml`
+  (PyPI w Dockerfile, `rosdep` szukałby w apt). Ewaluacja DP używa `run_episode(env, act)`
+  i `summarize()` z `evaluate_sac.py` - ta sama procedura dla obu metod.
+- **DP jest state-based - FiLM nie wiąże się z kamerą.** FiLM to warunkowanie dowolnym wektorem
+  (`h' = γ(c)·h + β(c)` per kanał). U Chi i in. U-Net 1D odszumia sekwencję akcji, a obserwacja
+  (+ embedding kroku dyfuzji) warunkuje każdy blok przez FiLM; wariant wizyjny różni się tylko
+  enkoderem obrazu, a praca raportuje też wyniki „low-dim" (stan). U nas warunek = wektor 17D
+  z `observations.py` z `T_o` kroków, spłaszczony - **ta sama obserwacja co SAC**, więc różnica
+  wyników wynika z metody, nie z wejścia. Napisać to wprost, bo DP kojarzy się z wizją.
+- **Multimodalność - plan opcjonalny, po rdzeniu (10.2026).** Ekspert losuje jedną z **dwóch**
+  tras transportu **niezależnie od obserwacji** (rzut monetą na start) - inaczej p(a|o) jest
+  unimodalne i każdy model nauczy się reguły. W wolnej przestrzeni średnia dwóch tras jest zwykle
+  wykonalna, więc sukces DP i BC może wyjść równy: mierzyć **rozkład trajektorii** (np. histogram
+  maks. wysokości / strony objazdu), DP = dwa skupienia, BC = jedno pośrodku. Porównanie
+  **DP vs BC-MLP** (ta sama obserwacja, regresja MSE), nie DP vs SAC - SAC nie imituje, więc nie
+  uśrednia trybów. Tryb zapisywany w `ep_XXXX.npz`/`meta.json`; zbiór unimodalny zostaje jako
+  ablacja; ~200 demo przy dwóch trybach.
+- **Odrzucone: L1 + przeszkoda zamiast perturbacji w L3 (10.2026).** Przewaga DP przy
+  przeszkodzie to multimodalność, która dotyczy uczenia z demonstracji, nie RL (SAC wybierze
+  jedną trasę). Koszt: nagroda `−d_transport` ciągnie w przeszkodę (lokalne minimum, tygodnie
+  strojenia), DLS-IK nie omija przeszkód ogniwami, kontakty w DART to ryzyko blokad. Dobór
+  zadania pod jedną metodę osłabia porównanie - L3 (perturbacje, gdzie może wygrać RL) zostaje
+  jako przeciwwaga dla scenariuszy sprzyjających DP. Perturbacje są tanie: `set_cube_pose` w
+  trakcie epizodu.
 
 ### Ewaluacja i eksperymenty - ustalenia
 
 - Protokół: ≥50 epizodów testowych x ≥3 seedy treningowe, średnia ± odchylenie, identyczne ziarna randomizacji sceny dla wszystkich metod.
+- **Raportujemy WYŁĄCZNIE ewaluację deterministyczną (`evaluate_sac`, 09.2026).** `monitor.csv`
+  liczy epizody z **próbkowanymi** akcjami SAC przy zmieniających się wagach, więc miesza
+  politykę z szumem eksploracji. Zmierzone: `_curriculum_v2` miał w monitorze do 17.5% sukcesów
+  pełnego zadania, a deterministycznie i stochastycznie na końcowych wagach **0/50**. Monitor
+  służy do diagnostyki. `evaluate_sac`: domyślnie deterministycznie, `curriculum_rate = 0`,
+  seed 1000 (z dala od treningowych), przedział Wilsona 95%, licznik `release_attempts`
+  (otwarcie chwytaka przy trzymanej kostce - odróżnia „nie próbuje" od „próbuje i chybia").
+  Działa tylko przy zatrzymanym treningu (jedno Gazebo).
+- **Na L1 ewaluacja ≈ jedna trajektoria.** Stała scena + deterministyczna polityka = ten sam
+  epizod powtórzony (odchylenie zwrotu ±1.5), więc przedział Wilsona zakłada niezależność, której
+  nie ma. Na L1 wynik czytać zero-jedynkowo; przedziały mają sens od L2 (100 epizodów).
+- **Wybór checkpointu:** ewaluacja deterministyczna checkpointów z okresu plateau (5 epizodów na
+  L1 wystarczy), nie samych końcowych wag - polityka potrafi oscylować (`_curriculum_v2`).
 - Smoothness: całka z jerku / suma kwadratów przyspieszeń stawów + długość ścieżki EE.
 - Efektywność próbkowa - dwie osie: kroki środowiska (RL) vs koszt demonstracji (DP); raportować obie.
 - **Hipoteza na L3 (najciekawszy potencjalny wynik):** chunking DP (otwarta pętla przez T_a kroków) vs reaktywność RL co krok - przewaga DP z L1/L2 może stopnieć/odwrócić się przy perturbacjach; ablacja T_a vs smoothness.
@@ -304,10 +499,7 @@ DiffRL-Panda/
 │   │   ├── worlds/fr3_world.sdf      # ground plane + stół + kostka
 │   │   └── config/controllers.yaml
 │   │
-│   ├── franka_task/                  # Pakiet ament_python: logika Pick & Place
-│   │   ├── task_manager.py
-│   │   ├── scene_randomizer.py
-│   │   └── reward.py
+│   ├── (franka_task/ - NIE założony: reward, randomizacja sceny i poziomy siedzą w franka_rl)
 │   │
 │   ├── franka_rl/                    # Pakiet ament_python: środowisko Gym + SAC, PPO
 │   │   ├── config.py                # stałe (progi, wagi reward, geometria) - ZERO ROS
@@ -321,14 +513,15 @@ DiffRL-Panda/
 │   │   ├── test/                    # pytest - uruchamialny bez Gazebo
 │   │   ├── random_baseline.py       # baseline losowej polityki (diagnostyka środowiska)
 │   │   ├── collect_demos.py         # pętla wykonawcza eksperta: diagnostyka + zapis demo
-│   │   ├── train_sac.py
-│   │   ├── train_ppo.py
-│   │   └── eval.py
+│   │   ├── train_sac.py             # --resume, --curriculum-rate, --checkpoint-freq
+│   │   ├── evaluate_sac.py          # ewaluacja deterministyczna → evaluation/
+│   │   └── (train_ppo.py - planowany)
 │   │
-│   └── franka_diffusion/             # Pakiet ament_python: Diffusion Policy
-│       ├── dataset.py               # czyta gotowe pliki demo z data/demos/
-│       ├── train.py
-│       └── eval.py
+│   └── franka_diffusion/             # Pakiet ament_python: Diffusion Policy (założony 08.10.2026)
+│       ├── dataset.py               # czyta gotowe pliki demo z data/demos/ - ZERO ROS
+│       ├── model.py                 # U-Net 1D + FiLM - ZERO ROS
+│       ├── train.py                 # DDPM - ZERO ROS
+│       └── eval.py                  # jedyny plik importujący franka_rl.gym_env
 │
 ├── evaluation/                       # Automatyczny protokół ewaluacji
 ├── data/                             # Demonstracje, checkpointy, wyniki (gitignored)
@@ -337,7 +530,7 @@ DiffRL-Panda/
 
 Podział na pakiety ROS 2:
 - `franka_sim` → `ament_cmake` (launch files, konfiguracja Gazebo, URDF)
-- `franka_task`, `franka_rl`, `franka_diffusion` → `ament_python`
+- `franka_rl`, `franka_diffusion` → `ament_python` (`franka_task` z pierwotnego szkicu nie powstał)
 
 **Zbieranie demonstracji należy do `franka_rl`, nie do `franka_diffusion` (sprostowanie 09.2026).**
 Wcześniejszy szkic struktury umieszczał `data_collector.py` w `franka_diffusion`. To jest złe
@@ -476,7 +669,9 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
   Zastrzeżenie: to czysta kinematyka TCP - model kolizyjny nie był ładowany do pinocchio, więc
   test **nie** mówi nic o kolizjach ze stołami, autokolizjach ani o nadążaniu JTC.
 - **Dystans transportu ~0.73 m** (kostka `(0.5,0)` → cel `(0,±0.525)`). Przy 5 cm/krok min. ~14
-  kroków samego przenoszenia; `max_episode_steps=200` starczy. Zadanie wyraźnie trudniejsze niż
+  kroków samego przenoszenia; `max_episode_steps=200` starczy. **Aktualizacja (10.2026):** po
+  `limit_joint_step` transport eksperta to 35–55 kroków, cały epizod do 129 - limit 200 dalej
+  wystarcza. Zadanie wyraźnie trudniejsze niż
   typowe panda-gym (~0.15 m) → strojenie `mu` palców przestaje być odkładalne.
 - **Kostka może spaść w szczelinę** (pod spodem jest podłoga `z=0`). W `step()` przerywać epizod
   przy `cube_z < 0.35` (`terminated=True`, bez bonusu), inaczej agent ciągnie 200 kroków stanu bez
@@ -634,9 +829,11 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
      stawów nie były logowane. Czy świat przy RTF = 1 bez `set_physics` też ucieka, **nie
      sprawdzono**.
    - **TODO:**
-     1. **Ograniczyć zmianę stawów na krok** w `step()`. Jedyna zmierzona bezpieczna wartość to
-        1.0 rad/s (przestrzelenie 0.000), czyli `|Δq| ≤ 0.05` rad przy `dt = 0.05`; limit
-        prędkości z URDF (2.62 rad/s) jest **powyżej** progu ucieczki, więc sam nie wystarczy.
+     1. ~~**Ograniczyć zmianę stawów na krok** w `step()`.~~ **DONE** - `limit_joint_step` +
+        `MAX_JOINT_VEL = 1.0` rad/s (`|Δq| ≤ 0.05` rad przy `dt = 0.05`). Od wdrożenia zero
+        blokad w ~700k kroków treningu. Mechanizm w silniku dalej niewyjaśniony - limit
+        omija warunek wyzwalający, nie naprawia przyczyny. Koszt i decyzja o pozostawieniu:
+        „Tor sterowania".
      2. **Test `@pytest.mark.sim` na grawitację** (swobodny spadek kostki) - każda zmiana fizyki
         świata ma go przechodzić.
      3. **Test `@pytest.mark.sim` na ucieczkę** (`joint2` do `-1.4` przy ~2.6 rad/s, przestrzelenie
@@ -646,6 +843,11 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
      marginesu i marnowane kroki. Wymaga osobnej analizy granicy osiągalności z zamrożoną
      orientacją (np. strefa wykluczenia wokół osi bazy zamiast prostopadłościanu).
 2. **Wyścig przy `multi_step`** (faza 2 krokowania) - nierozstrzygnięty do czasu implementacji.
+3. **Testy curriculum i `W_RELEASE` brakujące; `test_state_cost_is_bounded` przechodzi pusto**
+   (sufit `Φ ≤ 0` jest nieprawdziwy od `W_RELEASE`, sampler nie trafia w region `on_goal`).
+   Brakuje też testu nowego warunku: kostka leżąca obok celu na stole celu nie kosztuje więcej
+   niż trzymana w tej samej odległości.
+4. **`WORKSPACE_BOX` dalej obejmuje nieosiągalny rejon przy bazie** (patrz pkt 1, TODO).
 
 ### Rozwiązane
 - `GZ_SIM_RESOURCE_PATH` → `ENV` w Dockerfile, meshe się ładują
@@ -654,6 +856,19 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
 - Mimic `fr3_finger_joint2` → Opcja A (jawne sterowanie oboma palcami, `strip_finger_mimic`)
 - Robot przewracający się przy kontakcie → link `world` + fixed joint `world_to_base`
 - Build Dockera padający na `rosdep` → pin `setuptools<81`
+- **Pierwsza komenda świeżego procesu ginie (zmierzone 29.09.2026)** → `SimInterface.wait_for_controllers()`
+  wołane w `FrankaPickPlaceEnv.__init__`. Nowy węzeł potrzebuje **2.4–3.0 s** czasu
+  rzeczywistego, zanim jego publisher zostanie sparowany z JTC (3 pomiary); `reset()` wysyłał
+  `Q_READY` od razu i tylko raz, więc komenda przepadała, a `_go_to` po 60 krokach rzucał
+  `RuntimeError`. Wyglądało jak blokada stawu (ramię nieruchome, kontrolery `active`, zegar
+  tyka) i początkowo było błędnie przypisane kostce zaklinowanej w chwytaku - ramię ruszyło
+  po ręcznej komendzie **bez** ruszania kostki. Trening tego nie ujawniał, bo po świeżym
+  bringupie ramię już stoi w `Q_READY`; ujawniła ewaluacja startująca po epizodzie, który
+  zostawił ramię gdzie indziej. Metoda osobna od `__init__`, bo `test_ros_bridge.py` tworzy
+  mostek bez symulacji. To **nie** jest mechanizm blokady `joint2` z pkt 1 (tamta pojawiała się
+  w środku treningu, nie na starcie procesu).
+- Start curriculum nigdy się nie udawał (`curriculum_start` = False w 100%) → strażnik `dq_max`
+  w `solve_ik` przy skoku ~0.6 m; naprawione `_solve_ik_path` (szczegóły: „Tor sterowania").
 - Strojenie fizyki chwytu → **okazało się niepotrzebne** (07.09.2026). Odłożone do czasu, aż
   będzie ruch z polityki; gdy ten ruch nastąpił, ekspert zebrał 100/100 demo na L2 bez ani
   jednego upuszczenia (`drop_rate` 0.000). Domyślne tarcie palców z `franka_description` przy
@@ -684,6 +899,15 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
    zachowanie), mediana `min_ee_to_cube` 0.71 vs 0.27 mm - przyczyna opisana wyżej przy
    `real_time_factor`. Który zbiór idzie do treningu DP, jeszcze nie rozstrzygnięte; oba są
    kompletne i zgodne formatem, więc nadają się też na ablację „rozmiar zbioru vs jakość".
+   **Nieaktualne od wprowadzenia `limit_joint_step`** - nie trenować na nich DP (sekcja
+   „Diffusion Policy - ustalenia").
+9. Trening SAC L1 - **DONE (04.10.2026)**: `sac_L1_seed0_20261004_1256`, od zera, reverse
+   curriculum 0.2, 600k kroków; ewaluacja deterministyczna 50/50. Ablacja bez curriculum:
+   `sac_L1_seed0_20260921_1331` (900k, 0/50).
+10. Ewaluacja deterministyczna `evaluate_sac` - **DONE (29.09.2026)**.
+11. **TODO (kolejność):** zebranie demo L1 (nowe budżety eksperta) → trening SAC L2 (od zera,
+    rate 0.2, cel 1.5M) → zebranie demo L2 → DP na L1 i L2 → wspólna ewaluacja → L3 (perturbacje)
+    → opcjonalnie multimodalność (DP vs BC-MLP). Równolegle: PPO (pomiar przepustowości).
 
 ---
 
@@ -709,6 +933,14 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
 | JTC (position) jako kontroler | Interpolacja = gładkość; identyczny dla RL, DP i eksperta |
 | Shaped reward + kara ‖a‖², bez filtrów akcji | Sparse nierozwiązywalny w budżecie; smoothness z surowych trajektorii |
 | DP: wariant CNN, trening od zera, DDIM w inferencji | Łatwiejszy tuning; oryginalny DP jest per-task, nie pretrenowany |
+| Gęsty koszt stanu zamiast PBRS | PBRS: dryf `(γ−1)Φ` > sygnał, podatek za wczesne zakończenie, znikomy skok za chwyt; zero chwytów w 178k kroków |
+| Człon sięgania wyłączony nad całym stołem celu (`GOAL_TABLE_BOUND`) | Klif zwolnienia: kostka obok celu −0.79/krok vs trzymanie −0.14 → wiszenie było optymalne |
+| Reverse curriculum jako mieszany rozkład startów | Pułapka off-policy dla rzadkiej akcji (55/900k przejść); osobna faza = zapominanie; bez demo eksperta |
+| SAC L2 od zera, nie z wag L1 | Jeden przepis na oba poziomy; polityka L1 = jedna trajektoria |
+| Raportowana tylko ewaluacja deterministyczna | Monitor miesza szum eksploracji (17.5% w monitorze vs 0/50 deterministycznie) |
+| `MAX_JOINT_VEL = 1.0` rad/s zostaje | Zmierzona ucieczka `joint2` od ~2 rad/s; zero blokad od wdrożenia; zmiana unieważniłaby SAC L1 i demo |
+| `franka_diffusion` jako osobny pakiet | Trening DP bez ROS i bez Gazebo; zależność tylko w `eval.py` |
+| L3 = perturbacje, nie przeszkoda | Przeszkoda testuje multimodalność (problem imitacji, nie RL); drogie; L3 równoważy scenariusze sprzyjające DP |
 
 ---
 
@@ -727,6 +959,9 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
 11. Wang et al. (2022) - Diffusion Policies as an Expressive Policy Class for Offline RL (Diffusion-QL, ICLR 2023) - *related work*
 12. arXiv:2410.01220 - Effective Tuning Strategies for Generalist Robot Manipulation Policies - *delta joint position vs delta-EE, argument za planem B*
 13. arXiv:2602.23408 - Demystifying Action Space Design for Robotic Manipulation Policies - *systematyczne badanie wyboru przestrzeni akcji*
+14. Florensa et al. (2017) - Reverse Curriculum Generation for Reinforcement Learning (CoRL 2017) - *podstawa startów z kostką w chwytaku*
+15. Ng, Harada, Russell (1999) - Policy Invariance Under Reward Transformations (ICML 1999) - *PBRS, odrzucone*
+16. Laskey et al. (2017) - DART: Noise Injection for Robust Imitation Learning (CoRL 2017) - *opcja na wąski zbiór L1 dla DP*
 
 ---
 
