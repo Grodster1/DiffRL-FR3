@@ -1,8 +1,7 @@
 # Cheatsheet - DiffRL-Panda
 
-> Ten plik trzyma **jak** - komendy i krótkie uwagi operacyjne (jedna linia: co zrobić, żeby
-> komenda zadziałała). **Dlaczego** - decyzje projektowe, fakty o modelu, uzasadnienia, stan
-> implementacji - idzie do `docs/thesis-project-context.md`. Nie dopisuj tu akapitów tła.
+> Ten plik trzyma komendy i krótkie uwagi operacyjne.  Decyzje projektowe, fakty o modelu, uzasadnienia, stan
+> implementacji są w `docs/thesis-project-context.md`. 
 
 ---
 
@@ -16,38 +15,33 @@ docker compose build
 docker compose build --no-cache
 
 # Uruchomienie kontenera
-docker compose up -d                     # ZALECANE: stabilna nazwa 'franka_sim'
-docker compose run sim                   # UWAGA: losowa nazwa (docker-sim-run-xxxx), psuje docker exec
+docker compose up -d                     # stabilna nazwa 'franka_sim'
+docker compose run sim                   # losowa nazwa (docker-sim-run-xxxx)
 
 # Drugi terminal w działającym kontenerze
-docker ps                                # sprawdź nazwę
-docker exec -it franka_sim bash          # .bashrc sam sourcuje ROS + franka_ws
+docker ps                                
+docker exec -it franka_sim bash          
 
-# Restart (pierwszy krok, gdy staw przestał reagować mimo aktywnego kontrolera)
+# Restart
 docker compose restart sim
 
 # Zatrzymanie / sprzątanie
-docker compose down                      # ubij serwis
+docker compose down                      # zabij obraz
 docker system prune -f                   # usuń zbędne warstwy/kontenery
 docker image prune -a -f                 # usuń nieużywane obrazy
 docker compose logs -f sim               # logi serwisu w tle
 ```
-
-> `docker exec franka_sim ...` działa tylko po `docker compose up -d`. Po `docker compose run`
-> nazwa jest losowa - sprawdź `docker ps`.
-
 ---
 
 ## Sourcowanie
 
-**Sesja interaktywna** - nic nie robisz, `.bashrc` sourcuje wszystkie trzy warstwy:
+**Sesja interaktywna**
 ```bash
 docker exec -it franka_sim bash
 source /ws/install/setup.bash            # tylko po pierwszym buildzie / dodaniu nowego pakietu
 ```
 
-**Pojedyncza komenda z hosta** - `docker exec franka_sim <cmd>` omija `.bashrc` (powłoka
-nieinteraktywna), więc zawsze owijaj w `bash -c` z sourcowaniem:
+**Pojedyncza komenda z hosta** - `docker exec franka_sim <cmd>` omija `.bashrc`. Zawsze dodawaj `bash -c` z sourcowaniem:
 ```bash
 docker exec franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /opt/franka_ws/install/setup.bash && source /ws/install/setup.bash; <KOMENDA>"
 ```
@@ -64,7 +58,7 @@ fx 'cd /ws && colcon build --packages-select franka_rl'
 
 | Source | Co odblokowuje |
 |---|---|
-| `/opt/ros/jazzy/setup.bash` | `ros2`, `colcon`, `rclpy`, **`pinocchio`**, `xacro`, mosty `ros_gz` |
+| `/opt/ros/jazzy/setup.bash` | `ros2`, `colcon`, `rclpy`, `pinocchio`, `xacro`, mosty `ros_gz` |
 | `/opt/franka_ws/install/setup.bash` | `franka_description`, `franka_msgs` (bazowy xacro FR3) |
 | `/ws/install/setup.bash` | `franka_sim`, `franka_rl` - `ros2 launch`, `$(find franka_sim)` |
 
@@ -91,7 +85,7 @@ docker exec -it franka_sim bash -c "apt-get install -y x11-apps && xeyes"
 # RViz - Fixed Frame = 'base', RobotModel → Description Topic = /robot_description
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; rviz2"
 
-# Gazebo GUI (klient dołącza do headless serwera z bringupa)
+# Gazebo GUI
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash; gz sim -g"
 ```
 
@@ -159,7 +153,7 @@ docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /
 
 ---
 
-## Walidacja PRZED uruchomieniem (oszczędza core dumpy)
+## Walidacja przed uruchomieniem
 
 ```bash
 # YAML
@@ -175,7 +169,7 @@ grep -A4 'joint name="fr3_joint1"' /tmp/test.urdf
 ## URDF / xacro
 
 ```bash
-# Nasz wrapper
+# Custom wrapper
 FR3=/ws/src/franka_sim/urdf/fr3_gazebo.urdf.xacro
 ros2 run xacro xacro $FR3 > /tmp/fr3.urdf
 
@@ -194,7 +188,7 @@ open(\"/tmp/fr3.urdf\",\"w\").write(strip_finger_mimic(xacro.process_file(\"/ws/
 "'
 ```
 
-> **NIE używać** flagi `ros2_control:=true` na bazowym xacro - dlatego mamy własny wrapper.
+> **NIE używać** flagi `ros2_control:=true` na bazowym xacro - dlatego jest customowy wrapper.
 
 ---
 
@@ -206,7 +200,7 @@ gz sim -g                                # klient GUI (dołącza do serwera)
 
 gz topic -l                              # lista topików gz
 gz model --list                          # modele w scenie
-gz model -m fr3 -p                        # poza modelu (musi zostać 0 0 0 - baza przykręcona)
+gz model -m fr3 -p                       # poza modelu (musi zostać 0 0 0 - baza przykręcona)
 gz service -l                            # serwisy gz
 
 export GZ_SIM_RESOURCE_PATH=/opt/franka_ws/install/franka_description/share:$GZ_SIM_RESOURCE_PATH
