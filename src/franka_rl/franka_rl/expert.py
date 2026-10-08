@@ -22,15 +22,9 @@ PHASE_NAMES = {
     TRANSPORT: "TRANSPORT", PLACE: "PLACE", RELEASE: "RELEASE", SETTLE: "SETTLE"
 }
 
-# Steps per phase, with margin. The action space moves the EE by at most 5 cm per
-# step, so the floor is distance / 0.05; the budget is that times a safety factor.
-# The margin has to be generous: the control law tapers near the target and JTC
-# lags, so the last centimetre costs several steps. Sum must stay under
-# max_episode_steps (200), or the late phases never get their turn.
-
 PHASE_BUDGET = {
-    APPROACH: 30, DESCEND: 20, CLOSE: GRIP_STEPS + 2, LIFT:20,
-    TRANSPORT: 40, PLACE: 20, RELEASE: GRIP_STEPS + 2, SETTLE: 10**9
+    APPROACH: 45, DESCEND: 18, CLOSE: GRIP_STEPS + 2, LIFT:18,
+    TRANSPORT: 75, PLACE: 16, RELEASE: GRIP_STEPS + 2, SETTLE: 10**9
 }
 
 class ScriptedExpert():
