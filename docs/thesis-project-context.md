@@ -47,7 +47,7 @@ Metryki porównawcze: skuteczność zadania (success rate), efektywność próbk
 |---|---|
 | 1–2 | Przegląd literatury + konfiguracja środowiska - **zamknięte** |
 | 3–4 | Implementacja środowiska symulacyjnego (scena P&P, węzły ROS 2, 3 poziomy trudności) - **zamknięte** (otwarta tylko faza 2 krokowania, `multi_step`) |
-| 5–6 | Implementacja i trening SAC oraz PPO ← **in progress** - SAC **L1 zamknięty** (04.10.2026, ewaluacja deterministyczna 50/50); następny SAC L2; PPO nieruszone |
+| 5–6 | Implementacja i trening SAC oraz PPO ← **in progress** - SAC **L1 zamknięty** (04.10.2026, ewaluacja deterministyczna 50/50); SAC **L2 98/100** (13.10.2026, wariant `_wp`); `train_ppo.py` napisany (12.10.2026), nietrenowany |
 | 7–8 | Zbiór demonstracji + trening Diffusion Policy - zbiory z 07/09.09 **nieaktualne** (zebrane przed `limit_joint_step`), do zebrania od nowa na L1 i L2; pakiet `franka_diffusion` założony (08.10.2026) |
 | 9–10 | Eksperymenty porównawcze + pisanie pracy |
 
@@ -258,6 +258,27 @@ Polityka (ΔEE @ 10–20 Hz)
   wznowienia to wagi + bufor. Licznik `CheckpointCallback` startuje od zera w każdym procesie,
   więc po wznowieniu siatka się przesuwa (np. 280k → 310k); nazwy plików mają łączny licznik.
 
+### Zapis konfiguracji runu i przechowywanie wyników (13.10.2026)
+
+- **`run_config.json` w katalogu runu** - `train_sac` i `train_ppo` dopisują przy każdym starcie
+  (także `--resume`) wpis z flagami, `argv`, licznikiem kroków na starcie, hostem, wersjami
+  bibliotek i **hashami plików `franka_rl`**. Wcześniej wariant nagrody było widać tylko po nazwie
+  runu, a wersji kodu nie dało się odtworzyć wcale. Wznowienie dopisuje kolejny wpis zamiast
+  nadpisywać, bo run przerwany i wznowiony na innym kodzie to w praktyce dwa różne eksperymenty.
+- **Hashe blobów zamiast hasha commita** - kontener nie widzi `.git` (montowane są tylko `src`,
+  `data`, `evaluation`). Liczone są tak samo jak `git hash-object`, z kopii w `install/`, czyli
+  z kodu, który faktycznie się wykonuje. Obejmują więc też niezacommitowane zmiany. Commit z daną
+  wersją pliku znajduje `git log --all --find-object=<hash>`. Odrzucone: montowanie `.git`
+  (wymaga odtworzenia kontenera, a `git status` widziałby `/ws` jako repo bez `docs/` i `docker/`).
+  Runy sprzed 13.10.2026 (w tym SAC L1 `20261004_1256`) tego pliku nie mają.
+- **Przechowywanie: prywatne repo modeli na Hugging Face Hub** (`tools/push_run_to_hub.py`,
+  uruchamiany na hoście przez `uv`). Układ ścieżek w repo HF odpowiada temu repozytorium, więc
+  pobranie odtwarza `data/runs/<run>` i `evaluation/<...>` na miejscu. Replay buffer (~1–2 GB na
+  run, łącznie ~2 GB z ~2.6 GB w `data/`) nigdy nie jest wysyłany - służy tylko do `--resume` na
+  maszynie, która trenowała. Checkpointy (~500 MB łącznie) tylko na żądanie. Odrzucone: Git LFS
+  (limity darmowego planu i ciężkie repo kodu), GitHub Releases (dobre do zamrożonych wyników,
+  niewygodne do bieżącej synchronizacji).
+
 ### Reward i RL - ustalenia
 
 - Sparse reward dla czystego SAC/PPO nierozwiązywalny w budżecie → **shaped reward** dla obu algorytmów: kara odległości EE–obiekt + bonus za chwyt + kara odległości obiekt–cel + bonus sukcesu + mała kara ‖a‖².
@@ -335,6 +356,23 @@ Polityka (ΔEE @ 10–20 Hz)
 - Kara ‖a‖² w nagrodzie RL: tak (standard, cytat panda-gym/Fetch). **Żadnych filtrów dolnoprzepustowych na akcjach** u żadnej metody - smoothness raportowana z surowych trajektorii.
 - SAC+HER możliwy jako eksperyment dodatkowy (tylko off-policy; SB3 `HerReplayBuffer`). PPO nie wspiera HER.
 - Oczekiwanie: SAC 5–10x efektywniejszy próbkowo niż PPO; PPO może nie zdążyć na L2/L3 - to też jest wynik (metryka efektywności próbkowej).
+- **PPO (`train_ppo.py`, 12.10.2026, na prośbę promotora).** Ten sam env, nagroda (z opcją
+  `--transport-waypoint`), curriculum i układ runu co SAC, nazwa `ppo_<poziom>_seed<n>_<data>`.
+  Wynik negatywny (nie wyuczył się w budżecie) jest akceptowalny i raportowany jako efektywność
+  próbkowa. Różnice wynikające z on-policy:
+  - Hiperparametry: domyślne SB3/rl-zoo dla ciągłego sterowania z jednym env [P] - `n_steps` 2048
+    (~10 epizodów na aktualizację), `batch_size` 64, `n_epochs` 10, `gae_lambda` 0.95, `clip` 0.2,
+    `ent_coef` 0, lr 3e-4. Jedno Gazebo, więc jeden env - bez równoległych środowisk, które są
+    zwykłym atutem PPO.
+  - Normalizacja nagrody (`VecNormalize`, `norm_obs=False`) - zwroty rzędu −100…−300 psułyby
+    regresję głowy wartości. Obserwacje są już w [−1, 1], więc ewaluacja nie potrzebuje statystyk.
+  - Punkt wznowienia = model + `latest_vecnormalize.pkl` (nie ma bufora); przerwany rollout
+    przepada.
+  - Aktualizacja gradientu idzie między rolloutami, a Gazebo biegnie w tym czasie dalej (faza 1,
+    free-run) i ramię trzyma ostatnią komendę. Raz na rollout daje to jeden długi krok, widoczny w
+    `sim_dt_max`. Jeśli okaże się szkodliwy: pauza świata na czas aktualizacji (callback
+    `_on_rollout_end` + serwis `/world/fr3_world/control`, którego jeszcze nie mostkujemy).
+  - Ewaluacja: `evaluate_sac` rozpoznaje algorytm po nazwie runu (`--algo` nadpisuje).
 - ~~Curriculum: trening L2 startujący z wag L1~~ - **zmienione (10.2026):** L2 trenowane
   **od zera tym samym przepisem co L1** (ta sama nagroda, `--curriculum-rate 0.2`, checkpointy co
   20k), żeby w pracy stało „jedna metoda rozwiązuje oba poziomy". Polityka L1 to w praktyce jedna
@@ -342,6 +380,40 @@ Polityka (ΔEE @ 10–20 Hz)
   Budżet: cel 1.5M (~10 h przy ~43 krokach/s), kryterium przerwania ustalone z góry.
   **Uwaga:** `config.CURRICULUM_RATE` = 0.5 (domyślna wartość flagi), a raportowany run L1 użył
   jawnie 0.2. Run bazowy bez curriculum wymaga jawnego `--curriculum-rate 0`.
+- **Pierwszy run L2 (`sac_L2_seed0_20261010_1318`, 1.06M kroków, padł na blokadzie `joint2`
+  przy `reset()`) - polityka umie jeden stół naraz (diagnoza 12.10.2026).** Ewaluacja
+  deterministyczna z podziałem na strony, po 30 epizodów: checkpoint 650k - lewy **0/14**, prawy
+  **14/16**; checkpoint 1030k - lewy **11/13**, prawy **1/17**. Sukces w monitorze rósł do ~58%
+  (600–700k), potem spadł do ~21%; w tym samym czasie `critic_loss` z ~4 do 20–30, `ent_coef` z
+  0.02 do 0.095, akcje prawie stale w nasyceniu (±0.97–0.99). Przegrywająca strona za każdym
+  razem wygląda podobnie: EE jedzie w ścianę `WORKSPACE_BOX` (`y = ±0.6`) i tam stoi. Przy 650k
+  nie puszcza kostki, przy 1030k puszcza ją w ruchu, kostka sunie po blacie i staje ~9 cm od celu
+  (8/17 epizodów w tym samym punkcie ~(0.08, −0.58)). Wspólna przyczyna po stronie nagrody:
+  `d_transport` to prosta 3D do celu na wysokości blatu, więc kostka jedzie ze spodem 1–1.5 cm
+  nad blatem (środek ~0.435–0.44), a każde podniesienie jest karane. W 2/17 epizodów kostka
+  zaklinowała się o wewnętrzną krawędź prawego stołu (`y ≈ −0.378`, `z ≈ 0.42`). Ekspert tego nie
+  robi, bo przenosi na `HOVER_Z = 0.55`.
+- **Wariant nagrody: transport przez punkt nad celem (`--transport-waypoint`, 12.10.2026).**
+  Dopóki środek kostki nie jest w rzucie stołu celu (`GOAL_TABLE_BOUND`), `d_transport` to długość
+  drogi przez punkt `TRANSPORT_CLEARANCE = 0.08` m [P] nad celem:
+  `‖kostka − (cel + h·ẑ)‖ + h`. Nad stołem jest to zwykła prosta do celu. Droga nigdy nie jest
+  krótsza od prostej i najwyżej o `2h` dłuższa, więc ograniczenie kosztu stanu się nie zmienia.
+  Na granicy stołu koszt skacze o ≤ `h`. Ten skok jest w porządku, bo kostka przekraczająca granicę
+  nisko i tak musiała przejść przez droższe stany przed nią. Domyślnie wyłączony, żeby run L1
+  `20261004_1256` pozostał odtwarzalny. Runy z wariantem mają w nazwie sufiks `_wp`, a `--resume`
+  odmawia startu bez tej samej flagi. **Konsekwencja dla pracy:** jeśli L2 z wariantem zadziała,
+  „jeden przepis na oba poziomy" wymaga powtórzenia L1 z tą flagą albo jawnego opisu różnicy.
+  Strona celu (`goal_side`) jest od teraz w `info`, `monitor.csv` i `evaluate_sac` (osobne
+  podsumowania `goal_left` / `goal_right` poza L1).
+- **SAC L2 z wariantem rozwiązany (`sac_L2_seed0_20261012_1406_wp`, 13.10.2026).** Od zera,
+  `--curriculum-rate 0.2 --transport-waypoint`, 1.5M kroków (dwa wznowienia, bez awarii `joint2`).
+  Ewaluacja deterministyczna, 100 epizodów: **98/100** (95% CI 0.930–0.994), lewy **50/51**, prawy
+  **48/49**, `drop_rate` 0.000. Porażki: jedna bez chwytu (lewy, EE stoi 0.83 m od celu), jedna
+  z kostką 5.6 cm od celu (prawy, dwie próby zwolnienia). W odróżnieniu od runu `20261010_1318`
+  obie strony uczą się razem: w monitorze lewa rusza ~500k, prawa ~700k, od ~1.1M obie ~95%;
+  `critic_loss` na końcu ~2.4 (bez wzrostu do 20–30), `ent_coef` ~0.037. Wariant nagrody był więc
+  tym, czego brakowało. **Otwarte:** L1 do powtórzenia z `--transport-waypoint` (patrz wyżej).
+  `run_config.json` w tym runie nie ma (wszystkie starty sprzed tej funkcji).
 
 ### Diffusion Policy - ustalenia
 
@@ -515,7 +587,7 @@ DiffRL-Panda/
 │   │   ├── collect_demos.py         # pętla wykonawcza eksperta: diagnostyka + zapis demo
 │   │   ├── train_sac.py             # --resume, --curriculum-rate, --checkpoint-freq
 │   │   ├── evaluate_sac.py          # ewaluacja deterministyczna → evaluation/
-│   │   └── (train_ppo.py - planowany)
+│   │   └── train_ppo.py              # PPO, ten sam env/nagroda/curriculum co SAC
 │   │
 │   └── franka_diffusion/             # Pakiet ament_python: Diffusion Policy (założony 08.10.2026)
 │       ├── dataset.py               # czyta gotowe pliki demo z data/demos/ - ZERO ROS
@@ -904,9 +976,11 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
 9. Trening SAC L1 - **DONE (04.10.2026)**: `sac_L1_seed0_20261004_1256`, od zera, reverse
    curriculum 0.2, 600k kroków; ewaluacja deterministyczna 50/50. Ablacja bez curriculum:
    `sac_L1_seed0_20260921_1331` (900k, 0/50).
+    Trening SAC L2 - **DONE (13.10.2026)**: `sac_L2_seed0_20261012_1406_wp`, 1.5M kroków,
+    deterministycznie 98/100 (lewy 50/51, prawy 48/49).
 10. Ewaluacja deterministyczna `evaluate_sac` - **DONE (29.09.2026)**.
-11. **TODO (kolejność):** zebranie demo L1 (nowe budżety eksperta) → trening SAC L2 (od zera,
-    rate 0.2, cel 1.5M) → zebranie demo L2 → DP na L1 i L2 → wspólna ewaluacja → L3 (perturbacje)
+11. **TODO (kolejność):** zebranie demo L1 (nowe budżety eksperta) → SAC L1 z
+    `--transport-waypoint` (jeden przepis na oba poziomy) → zebranie demo L2 → DP na L1 i L2 → wspólna ewaluacja → L3 (perturbacje)
     → opcjonalnie multimodalność (DP vs BC-MLP). Równolegle: PPO (pomiar przepustowości).
 
 ---
