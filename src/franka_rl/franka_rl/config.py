@@ -11,6 +11,7 @@ WORKSPACE_BOX = np.array([[-0.15, -0.6, 0.42], [0.70, 0.6, 0.65]])
 CLIP_MARGIN = 0.05          # [Z] set to 0.05 rad. It prevents joints from reaching its limit. Joint2 after reaching its limit blocks itself and reset() doesn't work.
                             # joint2 driven exactly onto its limit locks in DART and ignores commands; mechanism unexplained
 GOAL_TABLE_BOUND = 0.125    # [W] half of goal table's side
+TRANSPORT_CLEARANCE = 0.08  # [P] waypoint above the goal for transport_waypoint; cube bottom 8 cm over the table edge
 
 # Reset
 TOL = 0.05
