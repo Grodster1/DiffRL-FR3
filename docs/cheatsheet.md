@@ -281,6 +281,12 @@ docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /
 # bez rebuildu, prosto ze źródeł
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash; cd /ws && PYTHONPATH=/ws/src/franka_rl:\$PYTHONPATH python3 -m franka_rl.train_sac --level L1 --seed 0 --timesteps 5000"
 
+# L2 z nagroda transportu przez punkt nad celem (run dostaje sufiks _wp; przy --resume podaj te sama flage)
+docker exec -d franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl train_sac --level L2 --seed 0 --timesteps 1500000 --curriculum-rate 0.2 --transport-waypoint --tensorboard > data/runs/train_L2_wp.log 2>&1"
+
+# PPO - te same flagi co train_sac (bez --buffer-size); nie rownolegle z SAC (jedno Gazebo)
+docker exec -d franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl train_ppo --level L1 --seed 0 --timesteps 1000000 --curriculum-rate 0.2 --tensorboard > data/runs/train_ppo_L1.log 2>&1"
+
 # wznowienie po padzie kontenera - --timesteps to CEL laczny, nie dorzucany budzet
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl train_sac --timesteps 300000 --resume data/runs/sac_L1_seed0_<data>"
 
@@ -336,6 +342,22 @@ print(s['success_rate'], s['expert_failure_rate'], s['failure_phases'])\""
 
 > Gdy `success_rate` jest niskie, czytaj `failure_phases` z `summary.json` - mówi, w której
 > fazie automatu ekspert się poddał (`DESCEND`/`CLOSE` = strojenie chwytu, nie budżetu).
+
+### Wyniki na Hugging Face Hub (na hoście, nie w kontenerze)
+
+```bash
+uvx --from huggingface_hub hf auth login   # raz na urządzenie, token z uprawnieniem write
+
+# podgląd, co pójdzie (replay buffer nigdy nie idzie; checkpointy tylko z --with-checkpoints)
+uv run tools/push_run_to_hub.py data/runs/<run> --repo Grodster/diffrl-fr3-runs --log data/runs/<log>.log --dry-run
+uv run tools/push_run_to_hub.py data/runs/<run> --repo Grodster/diffrl-fr3-runs --log data/runs/<log>.log
+
+# na innym urządzeniu, z katalogu repo - odtwarza data/runs/<run> i evaluation/
+uvx --from huggingface_hub hf download Grodster/diffrl-fr3-runs --include "data/runs/<run>/*" "evaluation/<run>_*" --local-dir .
+
+# commit, w którym był dany plik z run_config.json -> "code"
+git log --all --oneline --find-object=<hash>
+```
 
 ### Weights & Biases
 ```bash
