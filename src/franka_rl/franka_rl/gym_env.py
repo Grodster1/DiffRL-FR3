@@ -12,7 +12,8 @@ from franka_rl.ros_bridge import SimInterface
 
 class FrankaPickPlaceEnv(gym.Env):
     
-    def __init__(self, dt = 0.05, max_episode_steps = 200, level = 'L1', curriculum_rate = 0.0):
+    def __init__(self, dt = 0.05, max_episode_steps = 200, level = 'L1', curriculum_rate = 0.0,
+                 transport_waypoint = False):
         xacro_file = "/ws/src/franka_sim/urdf/fr3_gazebo.urdf.xacro"
         urdf_str = strip_finger_mimic(xacro.process_file(xacro_file).toxml())
         with tempfile.NamedTemporaryFile(mode='w', suffix='.urdf', delete=False) as f:
@@ -30,6 +31,7 @@ class FrankaPickPlaceEnv(gym.Env):
         self._dropped = False
         self._curriculum_start = False
         self._curriculum_rate = float(curriculum_rate)
+        self._transport_waypoint = bool(transport_waypoint)
         self._min_ee_to_cube = np.inf
         self._min_cube_to_goal = np.inf
         self._drop_xy = np.full(2, np.nan)
@@ -127,16 +129,28 @@ class FrankaPickPlaceEnv(gym.Env):
         z = 0.425
         return np.array([x,y,z])
     
+    def _transport_distance(self, is_in_goal_bounds_xy):
+        """ Remaining transport distance. Straight line to the goal by default.
+            With `transport_waypoint`, until the cube is above the goal table the path
+            goes through a point TRANSPORT_CLEARANCE above the goal: the straight line
+            rewards skimming the table edge (L2, 10.2026). """
+        cube_to_goal = self._last_obs_dict["cube_to_goal"]
+        if not self._transport_waypoint or is_in_goal_bounds_xy:
+            return np.linalg.norm(cube_to_goal)
+
+        cube_to_waypoint = cube_to_goal + np.array([0.0, 0.0, cfg.TRANSPORT_CLEARANCE])
+        return np.linalg.norm(cube_to_waypoint) + cfg.TRANSPORT_CLEARANCE
+
     def _state_cost(self):
         """Computes State Cost instead of Potential-Based Shaping Reward """
         d_reach = np.linalg.norm(self._last_obs_dict["ee_to_cube"])
-        d_transport = np.linalg.norm(self._last_obs_dict["cube_to_goal"])
         d_xy = np.linalg.norm(self._last_obs_dict["ee_to_cube"][:2])
         d_z = np.abs(self._last_obs_dict["ee_to_cube"][2])
         cube_z = self._last_obs_dict["ee_to_cube"][2] + self._last_obs_dict["ee_pos"][2]
         on_goal = (np.linalg.norm(self._last_obs_dict["cube_to_goal"][:2]) < cfg.SUCCESS_XY_TOL) and abs(self._last_obs_dict["cube_to_goal"][2]) < cfg.SUCCESS_Z_TOL
         bounds_xy = np.abs(self._last_obs_dict["cube_to_goal"][:2])
         is_in_goal_bounds_xy = np.all(bounds_xy < cfg.GOAL_TABLE_BOUND)
+        d_transport = self._transport_distance(is_in_goal_bounds_xy)
         
         s1 = 1 - np.clip(d_xy / cfg.R_XY, 0, 1)                                                     # align in XY
         s2 = s1 * (1 - np.clip(d_z / cfg.R_Z, 0, 1))                                                # align in Z
@@ -228,7 +242,8 @@ class FrankaPickPlaceEnv(gym.Env):
             "min_cube_to_goal": self._min_cube_to_goal,
             "drop_x": float(self._drop_xy[0]),
             "drop_y": float(self._drop_xy[1]),
-            "curriculum_start": self._curriculum_start
+            "curriculum_start": self._curriculum_start,
+            "goal_side": "left" if self.goal_pos[1] > 0 else "right"
         }
     
     def _compute_reward(self, action, just_grasped, success):
