@@ -1,12 +1,6 @@
-"""Evaluation of a trained SAC policy on FrankaPickPlaceEnv.
-
-Training-time monitor.csv records episodes rolled out with *sampled* SAC actions,
-so its success rate mixes the policy with exploration noise. This script rolls the
-policy out deterministically (the action the thesis reports and compares with DP),
+"""Evaluation of a trained SAC or PPO policy on FrankaPickPlaceEnv.
+This script rolls the policy out deterministically, 
 from the standard start (curriculum_rate = 0) unless told otherwise.
-
-`release_attempts` counts steps where the policy commands the gripper open while
-holding the cube - it separates "never tries to release" from "releases off target".
 """
 
 import argparse
@@ -16,18 +10,21 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from stable_baselines3 import SAC
+from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.utils import set_random_seed
 
 from franka_rl.gym_env import FrankaPickPlaceEnv
 
 MODEL_IN_RUN_DIR = "latest.zip"
+ALGORITHMS = {"sac": SAC, "ppo": PPO}
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('model', type=str,
                         help="Run directory (uses latest.zip) or an explicit .zip")
+    parser.add_argument('--algo', type=str, default=None, choices=sorted(ALGORITHMS),
+                        help="Algorithm of the model (default: from the run name, sac_* / ppo_*)")
     parser.add_argument('--level', type=str, default='L1', choices=['L1', 'L2', 'L3'],
                         help="Difficulty level (default: 'L1')")
     parser.add_argument('--seed', type=int, default=1000,
@@ -62,6 +59,16 @@ def resolve_model(model):
         raise FileNotFoundError(f"No model at {model_path}")
 
     return model_path
+
+
+def infer_algo(model_path):
+    """ Algorithm from the run name: <run>/latest.zip or <run>/checkpoints/rl_model_*.zip. """
+    for parent in (model_path.parent, model_path.parent.parent):
+        for algo in ALGORITHMS:
+            if parent.name.startswith(f"{algo}_"):
+                return algo
+
+    raise ValueError(f"Cannot tell the algorithm of {model_path} from its run name - pass --algo")
 
 
 def wilson_interval(successes, n, z=1.96):
@@ -103,6 +110,7 @@ def run_episode(env: FrankaPickPlaceEnv, act):
         "is_grasped": bool(info["is_grasped"]),
         "dropped": bool(info["dropped"]),
         "curriculum_start": bool(info["curriculum_start"]),
+        "goal_side": info["goal_side"],
         "release_attempts": release_attempts,
         "min_ee_to_cube": float(info["min_ee_to_cube"]),
         "min_cube_to_goal": float(info["min_cube_to_goal"]),
@@ -159,7 +167,8 @@ def evaluate_sac():
     model_path = resolve_model(args.model)
 
     set_random_seed(args.seed)
-    model = SAC.load(str(model_path), device="cpu")
+    algo = args.algo or infer_algo(model_path)
+    model = ALGORITHMS[algo].load(str(model_path), device="cpu")
     deterministic = not args.stochastic
 
     def act(obs):
@@ -190,6 +199,7 @@ def evaluate_sac():
                 f.flush()
                 print(f"[{i + 1}/{args.episodes}] return={record['return']:8.2f} "
                       f"len={record['length']:3d} cur={int(record['curriculum_start'])} "
+                      f"goal={record['goal_side']:5s} "
                       f"grasp={int(record['is_grasped'])} release_att={record['release_attempts']:3d} "
                       f"success={int(record['is_success'])} drop={int(record['dropped'])} "
                       f"xy={record['final_cube_to_goal_xy']:.3f}")
@@ -203,9 +213,13 @@ def evaluate_sac():
     if 0.0 < args.curriculum_rate < 1.0:
         groups["standard_start"] = [r for r in records if not r["curriculum_start"]]
         groups["curriculum_start"] = [r for r in records if r["curriculum_start"]]
+    for side in ("left", "right"):
+        if args.level != "L1":
+            groups[f"goal_{side}"] = [r for r in records if r["goal_side"] == side]
 
     summary = {
         "model": str(model_path),
+        "algo": algo,
         "num_timesteps": int(model.num_timesteps),
         "mode": mode,
         "level": args.level,
