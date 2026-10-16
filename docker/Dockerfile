@@ -18,7 +18,7 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     torch torchvision
 
 RUN pip3 install --break-system-packages --no-cache-dir \
-    stable-baselines3[extra] gymnasium diffusers wandb matplotlib pandas pyyaml scipy
+    stable-baselines3[extra] gymnasium diffusers einops wandb matplotlib pandas pyyaml scipy
 
 RUN pip3 install --break-system-packages --no-cache-dir "setuptools<81" \
     && python3 -c "import pkg_resources; print('pkg_resources OK')"
