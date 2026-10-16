@@ -8,16 +8,19 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.save_util import load_from_zip_file
 from franka_rl.gym_env import FrankaPickPlaceEnv
+from franka_rl.run_config import write_run_config
 
 EPISODE_INFO_KEYS = ("is_success", "is_grasped", "dropped", "min_ee_to_cube",
                      "sim_dt_mean", "sim_dt_max", "min_cube_to_goal", "drop_x", 
-                     "drop_y", "curriculum_start")
+                     "drop_y", "curriculum_start", "goal_side")
+WAYPOINT_SUFFIX = "_wp"
 
 RESUME_MODEL = "latest.zip"
 RESUME_BUFFER = "latest_replay_buffer.pkl"
 
-def make_env(level, seed, monitor_path=None, curriculum_rate = 0.0):
-    env = FrankaPickPlaceEnv(level=level, curriculum_rate=curriculum_rate)
+def make_env(level, seed, monitor_path=None, curriculum_rate = 0.0, transport_waypoint = False):
+    env = FrankaPickPlaceEnv(level=level, curriculum_rate=curriculum_rate,
+                             transport_waypoint=transport_waypoint)
     env = Monitor(env, monitor_path, info_keywords=EPISODE_INFO_KEYS)
     env.reset(seed=seed)
 
@@ -87,6 +90,15 @@ def remaining_timesteps(target, done):
 
     return left
 
+def check_resume_reward(run_dir, transport_waypoint):
+    """ The reward variant lives only in the run name, so a resume without the same
+        flag would silently continue on a different reward. """
+    run_has_waypoint = run_dir.name.endswith(WAYPOINT_SUFFIX)
+
+    if run_has_waypoint != transport_waypoint:
+        raise ValueError(f"Run {run_dir.name} was trained with transport_waypoint="
+                         f"{run_has_waypoint}; pass --transport-waypoint accordingly")
+
 def monitor_path(run_dir, resumed):
     """ Monitor opens its file in write mode, so resuming into the same run dir would
         truncate the previous monitor.csv. Each resume gets its own numbered file;
@@ -121,6 +133,8 @@ def parse_args():
                         help="Replay buffer capacity (default: 1000000)")
     parser.add_argument('--checkpoint-freq', type=int, default=20000,
                         help="Steps between policy checkpoints (default: 20000)")
+    parser.add_argument('--transport-waypoint', action='store_true',
+                        help="Transport reward through a point above the goal table (default: straight line)")
 
     return parse_checked(parser.parse_args())
 
@@ -135,9 +149,12 @@ def train_sac():
 
     if args.resume:
         model_path, buffer_path, run_dir = resolve_resume(args.resume)
+        check_resume_reward(run_dir, args.transport_waypoint)
         budget = remaining_timesteps(args.timesteps, saved_timesteps(model_path))
     else:
         run_name = f"sac_{args.level}_seed{args.seed}_{datetime.now():%Y%m%d_%H%M}"
+        if args.transport_waypoint:
+            run_name += WAYPOINT_SUFFIX
         run_dir = Path(args.output) / run_name
         model_path = buffer_path = None
         budget = args.timesteps
@@ -146,7 +163,8 @@ def train_sac():
     checkpoint_dir = run_dir / "checkpoints"
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    env = make_env(args.level, args.seed, monitor_path(run_dir, bool(args.resume)), args.curriculum_rate)
+    env = make_env(args.level, args.seed, monitor_path(run_dir, bool(args.resume)),
+                   args.curriculum_rate, args.transport_waypoint)
     tb_log = str(run_dir / "tb") if args.tensorboard else None
 
     if model_path:
@@ -171,6 +189,8 @@ def train_sac():
             seed=args.seed,
             device="auto"
         )
+
+    write_run_config(run_dir, "sac", args, model.num_timesteps)
 
     callbacks = [
         CheckpointCallback(
