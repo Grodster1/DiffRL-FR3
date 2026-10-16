@@ -45,11 +45,11 @@ Metryki porównawcze: skuteczność zadania (success rate), efektywność próbk
 
 | Tygodnie | Kamień milowy |
 |---|---|
-| 1–2 | Przegląd literatury + konfiguracja środowiska - **zamknięte** |
-| 3–4 | Implementacja środowiska symulacyjnego (scena P&P, węzły ROS 2, 3 poziomy trudności) - **zamknięte** (otwarta tylko faza 2 krokowania, `multi_step`) |
-| 5–6 | Implementacja i trening SAC oraz PPO ← **in progress** - SAC **L1 zamknięty** (04.10.2026, ewaluacja deterministyczna 50/50); SAC **L2 98/100** (13.10.2026, wariant `_wp`); `train_ppo.py` napisany (12.10.2026), nietrenowany |
-| 7–8 | Zbiór demonstracji + trening Diffusion Policy - zbiory z 07/09.09 **nieaktualne** (zebrane przed `limit_joint_step`), do zebrania od nowa na L1 i L2; pakiet `franka_diffusion` założony (08.10.2026) |
-| 9–10 | Eksperymenty porównawcze + pisanie pracy |
+| 1-2 | Przegląd literatury + konfiguracja środowiska - **zamknięte** |
+| 3-4 | Implementacja środowiska symulacyjnego (scena P&P, węzły ROS 2, 3 poziomy trudności) - **zamknięte** (otwarta tylko faza 2 krokowania, `multi_step`) |
+| 5-6 | Implementacja i trening SAC oraz PPO ← **in progress** - SAC **L1 zamknięty** (04.10.2026, ewaluacja deterministyczna 50/50); SAC **L2 98/100** (13.10.2026, wariant `_wp`); `train_ppo.py` napisany (12.10.2026), nietrenowany |
+| 7-8 | Zbiór demonstracji + trening Diffusion Policy - zbiory z 07/09.09 **nieaktualne** (zebrane przed `limit_joint_step`), do zebrania od nowa na L1 i L2; pakiet `franka_diffusion` założony (08.10.2026) |
+| 9-10 | Eksperymenty porównawcze + pisanie pracy |
 
 ---
 
@@ -57,7 +57,7 @@ Metryki porównawcze: skuteczność zadania (success rate), efektywność próbk
 
 ### Przestrzeń obserwacji (wspólna dla SAC, PPO i DP)
 
-Wariant **state-based** (oracle state z Gazebo), wektor ~20–30 wymiarów:
+Wariant **state-based** (oracle state z Gazebo), wektor ~20-30 wymiarów:
 
 | Składnik | Wymiar | Uwagi |
 |---|---|---|
@@ -82,19 +82,19 @@ a = (Δx, Δy, Δz, g) ∈ [-1, 1]⁴
 ```
 
 - Skalowanie: nominalnie `ACTION_SCALE` = **5 cm na oś na krok** przy `dt` = 50 ms (20 Hz).
-  **Faktyczny ruch EE to 1–3 cm/krok** (zmierzone 10.2026), bo wąskim gardłem jest limit
+  **Faktyczny ruch EE to 1-3 cm/krok** (zmierzone 10.2026), bo wąskim gardłem jest limit
   prędkości stawów (`MAX_JOINT_VEL` = 1.0 rad/s → `|Δq| ≤ 0.05` rad/krok, patrz „Tor sterowania"),
   a nie `ACTION_SCALE`. Pełna akcja jednej osi daje (kinematycznie, jeden krok):
 
   | Poza | ±x | ±y | ±z | przekątna XYZ (zadane 8.7) |
   |---|---|---|---|---|
   | `Q_READY` | 1.6 | 2.7 | 1.6 | 1.7 |
-  | nad kostką L1 | 1.4–1.6 | 2.7 | 1.3–1.5 | 1.1 |
-  | połowa transportu | 2.0–2.2 | 2.7–2.8 | 1.5–1.6 | 1.3 |
-  | nad celem lewym | 3.8–4.3 | **0.5–0.8** | 1.1–1.5 | 0.6 |
+  | nad kostką L1 | 1.4-1.6 | 2.7 | 1.3-1.5 | 1.1 |
+  | połowa transportu | 2.0-2.2 | 2.7-2.8 | 1.5-1.6 | 1.3 |
+  | nad celem lewym | 3.8-4.3 | **0.5-0.8** | 1.1-1.5 | 0.6 |
 
   W symulacji transport idzie ~2.2 cm/krok (staw ~0.04 rad/krok), zgodnie z tabelą. Skutek dla
-  polityki: powyżej |a| ≈ 0.3–0.5 akcja w praktyce wybiera tylko kierunek, długość kroku ustala
+  polityki: powyżej |a| ≈ 0.3-0.5 akcja w praktyce wybiera tylko kierunek, długość kroku ustala
   limit stawów. Ruch w `y` nad celem jest ~5x wolniejszy niż w `x` - to poza, w której joint1
   prawie się nie obraca (patrz „Tor sterowania", poza nad celem). W pracy opisywać jako
   **ograniczenie prędkości stawów**, nie przestrzeni akcji. Wcześniejszy zapis „max 5 cm/krok
@@ -106,7 +106,7 @@ a = (Δx, Δy, Δz, g) ∈ [-1, 1]⁴
 ### Tor sterowania
 
 ```
-Polityka (ΔEE @ 10–20 Hz)
+Polityka (ΔEE @ 10-20 Hz)
   → clip akcji + clip do workspace box (x∈[-0.15,0.7], y∈[-0.6,0.6], z∈[0.42,0.65])
   → IK: damped least-squares na jakobianie (pinocchio), q̇ = Jᵀ(JJᵀ+λ²I)⁻¹·err
   → clip do limitów stawów z marginesem CLIP_MARGIN = 0.05 rad
@@ -145,9 +145,9 @@ Polityka (ΔEE @ 10–20 Hz)
   od ~2 rad/s ucieczka do twardego ogranicznika i blokada, patrz „Znane problemy" pkt 1).
   Skalowanie całego kroku, a nie przycinanie per staw, zachowuje kierunek wyliczony przez IK.
   Od wdrożenia **zero blokad** w ~700k kroków treningu (runy `_curriculum_v2` i
-  `sac_L1_seed0_20261004_1256`). Koszt: ruch EE 2–3x wolniejszy (tabela w „Przestrzeń akcji"),
+  `sac_L1_seed0_20261004_1256`). Koszt: ruch EE 2-3x wolniejszy (tabela w „Przestrzeń akcji"),
   dłuższe epizody w krokach; na wyuczalność wpływu nie widać (SAC L1 = 100%). Podniesienie
-  limitu do realnych limitów FR3 (~2–2.6 rad/s) **odpada** - to dokładnie strefa ucieczki.
+  limitu do realnych limitów FR3 (~2-2.6 rad/s) **odpada** - to dokładnie strefa ucieczki.
   Zmiana w tej chwili unieważniłaby SAC L1 i nowe demonstracje (wspólny tor sterowania).
   W pracy: świadome ograniczenie prędkości stawów, wspólne dla SAC, eksperta i DP; ~40% limitu
   FR3 to typowy zapas bezpieczeństwa.
@@ -273,7 +273,7 @@ Polityka (ΔEE @ 10–20 Hz)
   Runy sprzed 13.10.2026 (w tym SAC L1 `20261004_1256`) tego pliku nie mają.
 - **Przechowywanie: prywatne repo modeli na Hugging Face Hub** (`tools/push_run_to_hub.py`,
   uruchamiany na hoście przez `uv`). Układ ścieżek w repo HF odpowiada temu repozytorium, więc
-  pobranie odtwarza `data/runs/<run>` i `evaluation/<...>` na miejscu. Replay buffer (~1–2 GB na
+  pobranie odtwarza `data/runs/<run>` i `evaluation/<...>` na miejscu. Replay buffer (~1-2 GB na
   run, łącznie ~2 GB z ~2.6 GB w `data/`) nigdy nie jest wysyłany - służy tylko do `--resume` na
   maszynie, która trenowała. Checkpointy (~500 MB łącznie) tylko na żądanie. Odrzucone: Git LFS
   (limity darmowego planu i ciężkie repo kodu), GitHub Releases (dobre do zamrożonych wyników,
@@ -281,7 +281,7 @@ Polityka (ΔEE @ 10–20 Hz)
 
 ### Reward i RL - ustalenia
 
-- Sparse reward dla czystego SAC/PPO nierozwiązywalny w budżecie → **shaped reward** dla obu algorytmów: kara odległości EE–obiekt + bonus za chwyt + kara odległości obiekt–cel + bonus sukcesu + mała kara ‖a‖².
+- Sparse reward dla czystego SAC/PPO nierozwiązywalny w budżecie → **shaped reward** dla obu algorytmów: kara odległości EE-obiekt + bonus za chwyt + kara odległości obiekt-cel + bonus sukcesu + mała kara ‖a‖².
 - **PBRS (Ng i in. 1999) odrzucone na rzecz gęstego kosztu stanu (09.2026).** Trzy niezależne
   przyczyny: (1) przy γ < 1 stanie w miejscu płaci `F(s,s) = −(1−γ)Φ(s) > 0`, tym więcej, im
   dalej od celu - artefakt większy niż użyteczny sygnał; (2) gwarancja wymaga `Φ(terminal)=0`, więc
@@ -342,10 +342,10 @@ Polityka (ΔEE @ 10–20 Hz)
     rósł, ale **0/50 deterministycznie** - polityka oscylowała (otwarcia w porcjach po 10k
     kroków: 16→3→1→18→3→5→15→0.4%), a odziedziczony aktor dalej zamykał.
   - **Run od zera z curriculum - SUKCES (`sac_L1_seed0_20261004_1256`, rate 0.2, 600k kroków).**
-    Odkładanie z curriculum działało od początku (27–67% sukcesów w epizodach curriculum przy
-    ~0% chwytów w pełnym zadaniu do 230k). Chwyt pojawił się ~280–320k, a sukces pełnego zadania
-    skoczył **z 0% do 91% w ~60k kroków** i trzymał się 91–96% do końca. **Ewaluacja
-    deterministyczna checkpointu 600k: 50/50 (95% CI 93–100%), 69 kroków na epizod.**
+    Odkładanie z curriculum działało od początku (27-67% sukcesów w epizodach curriculum przy
+    ~0% chwytów w pełnym zadaniu do 230k). Chwyt pojawił się ~280-320k, a sukces pełnego zadania
+    skoczył **z 0% do 91% w ~60k kroków** i trzymał się 91-96% do końca. **Ewaluacja
+    deterministyczna checkpointu 600k: 50/50 (95% CI 93-100%), 69 kroków na epizod.**
     Interpretacja (do wyników pracy): agent nauczył się odkładania, zanim umiał chwytać, więc
     chwyt tylko połączył gotowe fragmenty - dokładnie mechanizm reverse curriculum. Run 900k
     nauczył się chwytu, nie widząc ani jednego udanego odłożenia, i utknął w wiszeniu.
@@ -355,7 +355,7 @@ Polityka (ΔEE @ 10–20 Hz)
     stylu do opisania, ryzykowne na prawdziwym robocie.
 - Kara ‖a‖² w nagrodzie RL: tak (standard, cytat panda-gym/Fetch). **Żadnych filtrów dolnoprzepustowych na akcjach** u żadnej metody - smoothness raportowana z surowych trajektorii.
 - SAC+HER możliwy jako eksperyment dodatkowy (tylko off-policy; SB3 `HerReplayBuffer`). PPO nie wspiera HER.
-- Oczekiwanie: SAC 5–10x efektywniejszy próbkowo niż PPO; PPO może nie zdążyć na L2/L3 - to też jest wynik (metryka efektywności próbkowej).
+- Oczekiwanie: SAC 5-10x efektywniejszy próbkowo niż PPO; PPO może nie zdążyć na L2/L3 - to też jest wynik (metryka efektywności próbkowej).
 - **PPO (`train_ppo.py`, 12.10.2026, na prośbę promotora).** Ten sam env, nagroda (z opcją
   `--transport-waypoint`), curriculum i układ runu co SAC, nazwa `ppo_<poziom>_seed<n>_<data>`.
   Wynik negatywny (nie wyuczył się w budżecie) jest akceptowalny i raportowany jako efektywność
@@ -384,13 +384,13 @@ Polityka (ΔEE @ 10–20 Hz)
   przy `reset()`) - polityka umie jeden stół naraz (diagnoza 12.10.2026).** Ewaluacja
   deterministyczna z podziałem na strony, po 30 epizodów: checkpoint 650k - lewy **0/14**, prawy
   **14/16**; checkpoint 1030k - lewy **11/13**, prawy **1/17**. Sukces w monitorze rósł do ~58%
-  (600–700k), potem spadł do ~21%; w tym samym czasie `critic_loss` z ~4 do 20–30, `ent_coef` z
-  0.02 do 0.095, akcje prawie stale w nasyceniu (±0.97–0.99). Przegrywająca strona za każdym
+  (600-700k), potem spadł do ~21%; w tym samym czasie `critic_loss` z ~4 do 20-30, `ent_coef` z
+  0.02 do 0.095, akcje prawie stale w nasyceniu (±0.97-0.99). Przegrywająca strona za każdym
   razem wygląda podobnie: EE jedzie w ścianę `WORKSPACE_BOX` (`y = ±0.6`) i tam stoi. Przy 650k
   nie puszcza kostki, przy 1030k puszcza ją w ruchu, kostka sunie po blacie i staje ~9 cm od celu
   (8/17 epizodów w tym samym punkcie ~(0.08, −0.58)). Wspólna przyczyna po stronie nagrody:
-  `d_transport` to prosta 3D do celu na wysokości blatu, więc kostka jedzie ze spodem 1–1.5 cm
-  nad blatem (środek ~0.435–0.44), a każde podniesienie jest karane. W 2/17 epizodów kostka
+  `d_transport` to prosta 3D do celu na wysokości blatu, więc kostka jedzie ze spodem 1-1.5 cm
+  nad blatem (środek ~0.435-0.44), a każde podniesienie jest karane. W 2/17 epizodów kostka
   zaklinowała się o wewnętrzną krawędź prawego stołu (`y ≈ −0.378`, `z ≈ 0.42`). Ekspert tego nie
   robi, bo przenosi na `HOVER_Z = 0.55`.
 - **Wariant nagrody: transport przez punkt nad celem (`--transport-waypoint`, 12.10.2026).**
@@ -407,11 +407,11 @@ Polityka (ΔEE @ 10–20 Hz)
   podsumowania `goal_left` / `goal_right` poza L1).
 - **SAC L2 z wariantem rozwiązany (`sac_L2_seed0_20261012_1406_wp`, 13.10.2026).** Od zera,
   `--curriculum-rate 0.2 --transport-waypoint`, 1.5M kroków (dwa wznowienia, bez awarii `joint2`).
-  Ewaluacja deterministyczna, 100 epizodów: **98/100** (95% CI 0.930–0.994), lewy **50/51**, prawy
+  Ewaluacja deterministyczna, 100 epizodów: **98/100** (95% CI 0.930-0.994), lewy **50/51**, prawy
   **48/49**, `drop_rate` 0.000. Porażki: jedna bez chwytu (lewy, EE stoi 0.83 m od celu), jedna
   z kostką 5.6 cm od celu (prawy, dwie próby zwolnienia). W odróżnieniu od runu `20261010_1318`
   obie strony uczą się razem: w monitorze lewa rusza ~500k, prawa ~700k, od ~1.1M obie ~95%;
-  `critic_loss` na końcu ~2.4 (bez wzrostu do 20–30), `ent_coef` ~0.037. Wariant nagrody był więc
+  `critic_loss` na końcu ~2.4 (bez wzrostu do 20-30), `ent_coef` ~0.037. Wariant nagrody był więc
   tym, czego brakowało. **Otwarte:** L1 do powtórzenia z `--transport-waypoint` (patrz wyżej).
   `run_config.json` w tym runie nie ma (wszystkie starty sprzed tej funkcji).
 
@@ -420,12 +420,12 @@ Polityka (ΔEE @ 10–20 Hz)
 - Wariant **CNN (U-Net 1D + FiLM)**, nie Transformer (łatwiejszy tuning wg autorów).
 - Trening: DDPM ~100 kroków; inferencja: **DDIM ~10 kroków** (inaczej nie zmieści się w częstotliwości sterowania). Latencja inferencji DP vs MLP = dodatkowa metryka.
 - Chunking: T_o = 2, T_p = 16, T_a = 8 (wartości z papieru, do ablacji).
-- **Korekta terminologii w pracy:** oryginalny DP trenowany per-task od zera na 50–200 demonstracjach - nie "finetuning pretrenowanego modelu" (to domena VLA typu Octo/π₀). U nas: trening od zera na własnym datasecie.
+- **Korekta terminologii w pracy:** oryginalny DP trenowany per-task od zera na 50-200 demonstracjach - nie "finetuning pretrenowanego modelu" (to domena VLA typu Octo/π₀). U nas: trening od zera na własnym datasecie.
 - Demonstracje: **scripted expert** - automat 8 faz (approach → descend → close → lift → transport
   → place → release → settle) emitujący akcje 4D w tej samej przestrzeni co SAC i DP, przepuszczane
   przez ten sam `env.step()`. **Nie** waypointy przez MoveIt (wcześniejszy zapis „sekwencja
   waypointów przez IK / MoveIt" sprostowany 09.2026) - demonstracja spoza przestrzeni akcji polityki
-  jest niereprodukowalna, więc bezużyteczna jako cel imitacji. Cel: 100–200 udanych demo na L2 -
+  jest niereprodukowalna, więc bezużyteczna jako cel imitacji. Cel: 100-200 udanych demo na L2 -
   **pierwsze 100 zebrane 07.09.2026** (`data/demos/demo_L2_seed0_20260907_1445/`, 100/100 prób,
   ~8 min). Dosypanie drugiej setki innym seedem jest tanie i daje materiał na ablację „rozmiar
   zbioru vs jakość DP".
@@ -742,7 +742,7 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
   test **nie** mówi nic o kolizjach ze stołami, autokolizjach ani o nadążaniu JTC.
 - **Dystans transportu ~0.73 m** (kostka `(0.5,0)` → cel `(0,±0.525)`). Przy 5 cm/krok min. ~14
   kroków samego przenoszenia; `max_episode_steps=200` starczy. **Aktualizacja (10.2026):** po
-  `limit_joint_step` transport eksperta to 35–55 kroków, cały epizod do 129 - limit 200 dalej
+  `limit_joint_step` transport eksperta to 35-55 kroków, cały epizod do 129 - limit 200 dalej
   wystarcza. Zadanie wyraźnie trudniejsze niż
   typowe panda-gym (~0.15 m) → strojenie `mu` palców przestaje być odkładalne.
 - **Kostka może spaść w szczelinę** (pod spodem jest podłoga `z=0`). W `step()` przerywać epizod
@@ -929,7 +929,7 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
 - Robot przewracający się przy kontakcie → link `world` + fixed joint `world_to_base`
 - Build Dockera padający na `rosdep` → pin `setuptools<81`
 - **Pierwsza komenda świeżego procesu ginie (zmierzone 29.09.2026)** → `SimInterface.wait_for_controllers()`
-  wołane w `FrankaPickPlaceEnv.__init__`. Nowy węzeł potrzebuje **2.4–3.0 s** czasu
+  wołane w `FrankaPickPlaceEnv.__init__`. Nowy węzeł potrzebuje **2.4-3.0 s** czasu
   rzeczywistego, zanim jego publisher zostanie sparowany z JTC (3 pomiary); `reset()` wysyłał
   `Q_READY` od razu i tylko raz, więc komenda przepadała, a `_go_to` po 60 krokach rzucał
   `RuntimeError`. Wyglądało jak blokada stawu (ramię nieruchome, kontrolery `active`, zegar

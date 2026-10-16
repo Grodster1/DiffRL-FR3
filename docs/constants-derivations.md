@@ -48,7 +48,7 @@ unika przeszkód, więc każdy centymetr pionowej przeszkody to ryzyko kolizji.
 Wektor obserwacji ma **16 wymiarów**: `ee_pos (3) + ee_rot6d (6) + gripper (1) + ee_to_cube (3)
 + cube_to_goal (3)`.
 
-> Rozbieżność z `thesis-project-context.md`, który zapowiadał „~20–30D": pozycje bezwzględne
+> Rozbieżność z `thesis-project-context.md`, który zapowiadał „~20-30D": pozycje bezwzględne
 > kostki i celu zastąpiono wektorami względnymi (konwencja panda-gym - polityka dostaje wprost
 > to, co ma zredukować do zera), a opcjonalne `q (7)` i `dq (7)` pominięto. Przy pełnej
 > obserwowalności stanu `q` jest redundantne względem `(p_ee, R_ee)` **poza** rozwiązaniem
@@ -63,7 +63,7 @@ normalizacji `ee_pos`. Dolne granice są wyprowadzalne, górne to margines:
 |---|---|
 | `z_min = 0.42` | **[W]** Blat `0.40` + `0.02`. TCP nie może zejść poniżej wysokości chwytu (`0.425`) o więcej niż 5 mm - próba schodzenia niżej to taranowanie blatu palcami. |
 | `z_max = 0.65` | **[P]** `0.225 m` nad blatem. Wystarcza na przeniesienie ponad krawędziami stołów; wyżej nie ma po co, a wysoki sufit tylko rozrzedza normalizację. |
-| `x ∈ [-0.15, 0.70]` | **[P]** Pokrywa cele (`x = 0`) i strefę spawnu (`x ≤ 0.6`) z marginesem 0.1–0.15 m. |
+| `x ∈ [-0.15, 0.70]` | **[P]** Pokrywa cele (`x = 0`) i strefę spawnu (`x ≤ 0.6`) z marginesem 0.1-0.15 m. |
 | `y ∈ [-0.6, 0.6]` | **[P]** Pokrywa cele (`y = ±0.525`) z marginesem 0.075 m. |
 
 > **Znane ograniczenie (patrz §3.1a):** pudełko jest prostopadłościanem, a strefa robocza nim
@@ -144,7 +144,7 @@ Test kontrolny w `test_observations.py` sprawdza, że para kolumn jest ortonorma
 `build_obs_dict` zwraca **metry**, `normalize` zwraca `[-1, 1]`. Nagroda liczona jest z dicta,
 nie z wektora. Powód liczbowy: w wektorze każdy blok ma inny dzielnik (`ee_pos` przez
 `WORKSPACE_BOX`, wektory względne przez `REL_SCALE`), więc `‖obs[10:13]‖` **nie jest**
-odległością EE–kostka, tylko tą odległością przemnożoną przez ≈ `1/0.8`. Wagi w funkcji
+odległością EE-kostka, tylko tą odległością przemnożoną przez ≈ `1/0.8`. Wagi w funkcji
 nagrody przestałyby mieć interpretację fizyczną, a każda zmiana `REL_SCALE` wymuszałaby
 przestrojenie nagrody. Progi sukcesu (`‖p_cube − p_goal‖ < 0.05 m`) też mają sens wyłącznie
 w metrach.
@@ -192,8 +192,8 @@ sigma_min:  min 0.0176   mediana 0.1378   max 0.2182
 
 | Reżim | Gdzie | `σ_min` | Wniosek |
 |---|---|---|---|
-| Bezpieczny | Cała strefa chwytu (`z = 0.425`) | `0.138 – 0.218` | `σ_min ≈ 3–4 x λ` → tłumienie praktycznie nieaktywne, DLS zachowuje się jak pseudoodwrotność. |
-| Graniczny | Cele na `z = 0.65`, `x = 0.5` na `z = 0.65` | `0.055 – 0.073` | `σ_min ≈ λ` → tłumienie wchodzi do gry, wzmocnienie bliskie maksimum `1/(2λ)`. |
+| Bezpieczny | Cała strefa chwytu (`z = 0.425`) | `0.138 - 0.218` | `σ_min ≈ 3-4 x λ` → tłumienie praktycznie nieaktywne, DLS zachowuje się jak pseudoodwrotność. |
+| Graniczny | Cele na `z = 0.65`, `x = 0.5` na `z = 0.65` | `0.055 - 0.073` | `σ_min ≈ λ` → tłumienie wchodzi do gry, wzmocnienie bliskie maksimum `1/(2λ)`. |
 | Osobliwy | **`(0.6, ±0.2, 0.65)`** | **`0.0176`** | `σ_min < λ`. IK **nie dojeżdża**: błąd końcowy **4.4 cm**, no-op na progu `dq_max`. |
 
 **To jest realne znalezisko, nie ciekawostka.** Osobliwość siedzi w rogu „daleko **i** wysoko"
@@ -254,12 +254,12 @@ zawieszeniem pętli treningu, a nie realny budżet.
 
 | Stała | Wartość | Status | Wyprowadzenie |
 |---|---|---|---|
-| Krok fizyki | `1 ms` | **[P]** | `<max_step_size>0.001</max_step_size>` - wartość domyślna Gazebo, nie zmieniana. Wpływu większego kroku na jakość kontaktu palec–kostka **nie badaliśmy**; gdyby trening okazał się wolny, to pierwszy kandydat do ablacji (a zarazem pierwsze ryzyko przenikania kształtów). |
+| Krok fizyki | `1 ms` | **[P]** | `<max_step_size>0.001</max_step_size>` - wartość domyślna Gazebo, nie zmieniana. Wpływu większego kroku na jakość kontaktu palec-kostka **nie badaliśmy**; gdyby trening okazał się wolny, to pierwszy kandydat do ablacji (a zarazem pierwsze ryzyko przenikania kształtów). |
 | `update_rate` kontrolerów | `1000 Hz` | **[W]** | Dopasowane 1:1 do kroku fizyki - kontroler liczy się raz na krok solvera, bez aliasowania. |
-| `dt` polityki | `0.05 s` (20 Hz) | **[P]** | Górny koniec pasma 10–20 Hz z literatury (Chi 2023 dla DP). Wyższa częstotliwość = więcej kroków na epizod = dłuższy trening; niższa = szarpany ruch. |
+| `dt` polityki | `0.05 s` (20 Hz) | **[P]** | Górny koniec pasma 10-20 Hz z literatury (Chi 2023 dla DP). Wyższa częstotliwość = więcej kroków na epizod = dłuższy trening; niższa = szarpany ruch. |
 | Kroków fizyki na krok polityki | `50` | **[W]** | `0.05 / 0.001`. |
 | Skala akcji | `0.05 m/krok` | **[P]** | Przy 20 Hz daje `1 m/s` prędkości EE. Do podparcia w pracy kartą katalogową FR3 - jest to wartość wyraźnie poniżej limitu sprzętowego, więc pełni rolę limitu bezpieczeństwa i ujednolicenia dynamiki między metodami. |
-| `max_episode_steps` | `200` (10 s) | **[W]** | Sam transport to `0.725 / 0.05 ≈ 15 kroków`. Doliczając sięgnięcie, chwyt (§5), podniesienie i odłożenie - rząd 40–60 kroków dla eksperta. `200` daje ~3–4x zapas na eksplorację RL, nie będąc na tyle długim, żeby zaśmiecać replay buffer stanem terminalnym. |
+| `max_episode_steps` | `200` (10 s) | **[W]** | Sam transport to `0.725 / 0.05 ≈ 15 kroków`. Doliczając sięgnięcie, chwyt (§5), podniesienie i odłożenie - rząd 40-60 kroków dla eksperta. `200` daje ~3-4x zapas na eksplorację RL, nie będąc na tyle długim, żeby zaśmiecać replay buffer stanem terminalnym. |
 | `time_from_start` w JTC | `= dt` | **[P]** | Jednopunktowa trajektoria domykana dokładnie na następnym kroku polityki. **Nie schodzić poniżej** - JTC odrzuca trajektorię z `time_from_start = 0`. |
 
 ---
@@ -419,7 +419,7 @@ w całości ujemna, a `dropped` kończy epizod, więc skrócenie epizodu jest op
 −185). Kara za upuszczenie tego nie naprawi - musiałaby wynosić ≈ −185, co rozjedzie krytyka.
 To strukturalna właściwość „gęsta kara ujemna + wczesna terminacja", nie błąd doboru wag.
 
-Ocena ryzyka: umiarkowane. Zepchnięcie kostki do szczeliny wymaga przepchnięcia jej 25–45 cm
+Ocena ryzyka: umiarkowane. Zepchnięcie kostki do szczeliny wymaga przepchnięcia jej 25-45 cm
 w kierunku −x, czyli kilkunastu celowych kroków z kontaktem - losowa eksploracja tego nie
 znajdzie, a gradient „zbliż się do kostki" jest natychmiastowy.
 

@@ -8,7 +8,7 @@ Docker build naprawiony (pin `setuptools<81` - `rosdep` wymaga `pkg_resources`).
 
 Brakuje warstwy, która zamienia tę symulację w środowisko uczenia: polityka ma wystawiać
 akcję `(Δx, Δy, Δz, g)` i dostawać wektor obserwacji, a nie mówić do JTC bezpośrednio.
-To jest krok 4–5 z „Następnych kroków" w `thesis-project-context.md` i wspólny fundament
+To jest krok 4-5 z „Następnych kroków" w `thesis-project-context.md` i wspólny fundament
 dla SAC/PPO, Diffusion Policy **i** skryptowanego eksperta - zasada uczciwości porównania
 wymaga, żeby wszystkie trzy szły dokładnie tym samym torem sterowania.
 
@@ -60,7 +60,7 @@ Wzoruj się na `franka_sim/package.xml`, ale buildtool → `ament_python`.
 Zależności w `package.xml`: `rclpy`, `sensor_msgs`, `trajectory_msgs`, `tf2_msgs`,
 `ros_gz_interfaces`, `pinocchio`.
 
-Twórz pliki **z hosta** (reguła 8 z CLAUDE.md - inaczej colcon zrobi je root-owe).
+Twórz pliki **z hosta** (reguła 11 z CLAUDE.md - inaczej colcon zrobi je root-owe).
 
 Docelowa struktura:
 ```
@@ -216,4 +216,4 @@ Kolejno, każdy krok musi przejść przed następnym:
   (decyzja z thesis-context, pkt 5). Dopiero test 5 pokaże, czy jest problem.
 - Skryptowanego eksperta i zbierania demonstracji - osobny etap, ale ma korzystać
   z **tego samego** `step()`, nie z własnej ścieżki do JTC.
-- SAC/PPO - dopiero po zielonej weryfikacji 1–6.
+- SAC/PPO - dopiero po zielonej weryfikacji 1-6.
