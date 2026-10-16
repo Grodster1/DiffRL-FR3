@@ -1,7 +1,9 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
-from franka_rl.evaluate_sac import resolve_model, run_episode, summarize, wilson_interval
+from franka_rl.evaluate_sac import infer_algo, resolve_model, run_episode, summarize, wilson_interval
 
 
 def test_wilson_interval_stays_inside_unit_range_at_the_edges():
@@ -28,6 +30,19 @@ def test_resolve_model_accepts_an_explicit_zip(tmp_path):
     assert resolve_model(model) == model
 
 
+@pytest.mark.parametrize("path, algo", [
+    ("data/runs/ppo_L2_seed0_20261012_1400/latest.zip", "ppo"),
+    ("data/runs/sac_L2_seed0_20261012_1400_wp/checkpoints/rl_model_20000_steps.zip", "sac"),
+])
+def test_infer_algo_reads_the_run_name(path, algo):
+    assert infer_algo(Path(path)) == algo
+
+
+def test_infer_algo_raises_on_an_unknown_run_name():
+    with pytest.raises(ValueError):
+        infer_algo(Path("somewhere/model.zip"))
+
+
 def test_resolve_model_raises_when_nothing_is_there(tmp_path):
     with pytest.raises(FileNotFoundError):
         resolve_model(tmp_path)
@@ -48,7 +63,7 @@ class FakeEnv:
         return {"is_success": False, "is_grasped": True, "dropped": False,
                 "curriculum_start": False, "min_ee_to_cube": 0.01,
                 "min_cube_to_goal": 0.07, "cube_to_goal": np.array([0.06, 0.0, 0.0]),
-                "ik_failures": 0}
+                "ik_failures": 0, "goal_side": "left"}
 
     def reset(self):
         self.t = 0

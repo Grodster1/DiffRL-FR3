@@ -42,6 +42,7 @@ def make_env(level="L1", goal=cfg.GOAL_LEFT, seed=0):
     env._dropped = False
     env._curriculum_start = False
     env._curriculum_rate = 0.0
+    env._transport_waypoint = False
     env._min_ee_to_cube = np.inf
     env._min_cube_to_goal = np.inf
     env._drop_xy = np.full(2, np.nan)
@@ -326,6 +327,56 @@ def test_state_cost_is_bounded():
         assert floor - 1e-9 <= env._state_cost() <= 0.0
 
 
+def held_cost_over_gap(env, cube_lift):
+    """Cube held 0.2 m short of the goal table edge, `cube_lift` above table height."""
+    set_obs(env, ee_to_cube=[0.0, 0.0, 0.0], is_grasped=True, gripper=GRIP_HOLD,
+            cube_to_goal=[0.0, cfg.GOAL_TABLE_BOUND + 0.2, -cube_lift])
+    return env._state_cost()
+
+
+def test_transport_waypoint_rewards_clearing_the_table_edge():
+    """Off the goal table the waypoint variant prefers the cube at TRANSPORT_CLEARANCE;
+    the straight line prefers it as low as possible, which skims the edge."""
+    env = make_env()
+    low, high = 0.01, cfg.TRANSPORT_CLEARANCE
+    assert held_cost_over_gap(env, low) > held_cost_over_gap(env, high)
+
+    env._transport_waypoint = True
+    assert held_cost_over_gap(env, high) > held_cost_over_gap(env, low)
+
+
+def test_transport_waypoint_is_straight_line_above_the_goal_table():
+    env = make_env()
+    cube_to_goal = [0.05, -0.08, -0.06]
+    set_obs(env, ee_to_cube=[0.0, 0.0, 0.0], cube_to_goal=cube_to_goal, is_grasped=True)
+    straight = env._state_cost()
+
+    env._transport_waypoint = True
+    assert env._state_cost() == pytest.approx(straight)
+
+
+def test_transport_waypoint_never_shortens_the_distance():
+    """Path through the waypoint >= straight line, so the cost stays bounded by
+    the same floor plus the detour of at most 2 * TRANSPORT_CLEARANCE."""
+    env = make_env()
+    env._transport_waypoint = True
+    rng = np.random.default_rng(4)
+
+    for _ in range(500):
+        cube_to_goal = rng.uniform(-0.8, 0.8, 3)
+        set_obs(env, ee_to_cube=[0.0, 0.0, 0.0], cube_to_goal=cube_to_goal, is_grasped=True)
+        d = -env._state_cost() / cfg.W_TRANSPORT
+        assert d >= np.linalg.norm(cube_to_goal) - 1e-9
+        assert d <= np.linalg.norm(cube_to_goal) + 2 * cfg.TRANSPORT_CLEARANCE + 1e-9
+
+
+@pytest.mark.parametrize("goal, side", [(cfg.GOAL_LEFT, "left"), (cfg.GOAL_RIGHT, "right")])
+def test_info_reports_goal_side(goal, side):
+    env = make_env(level="L2", goal=goal)
+    set_obs(env)
+    assert env._get_info()["goal_side"] == side
+
+
 def test_being_closer_to_the_cube_costs_less():
     """States nearer the cube must be cheaper, otherwise nothing pulls the policy in."""
     env = make_env()
@@ -549,7 +600,8 @@ def test_step_returns_the_gym_five_tuple(kin):
     assert isinstance(terminated, bool) and isinstance(truncated, bool)
     assert set(info) == {"cube_to_goal", "ik_failures", "is_success", "is_grasped",
                          "dropped", "min_ee_to_cube", "sim_dt_mean", "sim_dt_max",
-                         "min_cube_to_goal", "drop_x", "drop_y", "curriculum_start"}
+                         "min_cube_to_goal", "drop_x", "drop_y", "curriculum_start",
+                         "goal_side"}
 
 
 def test_step_commands_the_arm_towards_the_requested_delta(kin, monkeypatch):
