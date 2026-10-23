@@ -135,12 +135,16 @@ def parse_args():
                         help="Steps between policy checkpoints (default: 20000)")
     parser.add_argument('--transport-waypoint', action='store_true',
                         help="Transport reward through a point above the goal table (default: straight line)")
+    parser.add_argument('--perturbation', type=str, default=None, choices=["displace", "goal_switch"],
+                        help="Perturbation type for Level 3 (default: None)")
 
     return parse_checked(parser.parse_args())
 
 def parse_checked(args):
     if args.save_freq < 1 or args.checkpoint_freq < 1:
         raise ValueError("Both --save-freq and --checkpoint-freq must be positive")
+    if args.level != "L3" and args.perturbation != None:
+        raise ValueError("Perturbation option is available only for L3")
 
     return args
 

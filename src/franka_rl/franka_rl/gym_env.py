@@ -12,7 +12,7 @@ from franka_rl.ros_bridge import SimInterface
 
 class FrankaPickPlaceEnv(gym.Env):
     
-    def __init__(self, dt = 0.05, max_episode_steps = 200, level = 'L1', curriculum_rate = 0.0,
+    def __init__(self, dt = 0.05, max_episode_steps = 200, level = 'L1', perturbation = None, curriculum_rate = 0.0,
                  transport_waypoint = False):
         xacro_file = "/ws/src/franka_sim/urdf/fr3_gazebo.urdf.xacro"
         urdf_str = strip_finger_mimic(xacro.process_file(xacro_file).toxml())
@@ -30,6 +30,7 @@ class FrankaPickPlaceEnv(gym.Env):
         self._success = False
         self._dropped = False
         self._curriculum_start = False
+        self._perturbation = None
         self._curriculum_rate = float(curriculum_rate)
         self._transport_waypoint = bool(transport_waypoint)
         self._min_ee_to_cube = np.inf
@@ -82,7 +83,7 @@ class FrankaPickPlaceEnv(gym.Env):
         err = state["q_arm"] - q_target
         stuck = [f"{cfg.ARM_JOINTS[j]}={state['q_arm'][j]:.3f}" for j in np.flatnonzero(np.abs(err)>cfg.TOL / np.sqrt(err.size))]
         raise RuntimeError(f"Joints: {stuck} didn't reach {label}. Distance: {err}")
-        
+    
     def _sample_release_pose(self):
         """ EE pose above the goal: goal_pos + [jitter_x, jitter_y, h]. """
         jitter = self.np_random.uniform(-cfg.CURRICULUM_XY_JITTER, cfg.CURRICULUM_XY_JITTER, size = 2)
@@ -227,9 +228,7 @@ class FrankaPickPlaceEnv(gym.Env):
     
     def _get_info(self):
         """ Per-step info. The episode-level flags ("is_success", "is_grasped",
-            "min_ee_to_cube") summarize the whole episode, so
-            the value read at the final step is the episode's verdict. That is
-            what Monitor(info_keywords=...) and SB3's rollout/success_rate read. """
+            "min_ee_to_cube") summarize the whole episode."""
         return {
             "cube_to_goal": self._last_obs_dict["cube_to_goal"],
             "ik_failures": self._ik_failures,
@@ -276,8 +275,7 @@ class FrankaPickPlaceEnv(gym.Env):
     
     def _update_grasped(self, ee_to_cube, cube_pos, gripper_opening):
         """ Checks whether cube is being held using _grasped_streak tracking
-            We need to confirm that cube is really being held - that's why 
-            we need streak to be over N_GRASP_CONFIRM."""
+            We need streak to be over N_GRASP_CONFIRM."""
         
         self._just_grasped = False
 
