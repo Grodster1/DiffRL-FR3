@@ -63,7 +63,7 @@ class FakeEnv:
         return {"is_success": False, "is_grasped": True, "dropped": False,
                 "curriculum_start": False, "min_ee_to_cube": 0.01,
                 "min_cube_to_goal": 0.07, "cube_to_goal": np.array([0.06, 0.0, 0.0]),
-                "ik_failures": 0, "goal_side": "left"}
+                "ik_failures": 0, "goal_side": "left", "perturbed": False, "perturb_step": None}
 
     def reset(self):
         self.t = 0

@@ -43,6 +43,11 @@ def make_env(level="L1", goal=cfg.GOAL_LEFT, seed=0):
     env._curriculum_start = False
     env._curriculum_rate = 0.0
     env._transport_waypoint = False
+    env._perturbation = None
+    env._perturb_rng = None
+    env._perturbed = False
+    env._perturb_step = None
+    env._perturb_armed = False
     env._min_ee_to_cube = np.inf
     env._min_cube_to_goal = np.inf
     env._drop_xy = np.full(2, np.nan)
@@ -601,7 +606,7 @@ def test_step_returns_the_gym_five_tuple(kin):
     assert set(info) == {"cube_to_goal", "ik_failures", "is_success", "is_grasped",
                          "dropped", "min_ee_to_cube", "sim_dt_mean", "sim_dt_max",
                          "min_cube_to_goal", "drop_x", "drop_y", "curriculum_start",
-                         "goal_side"}
+                         "goal_side", "perturbed", "perturb_step"}
 
 
 def test_step_commands_the_arm_towards_the_requested_delta(kin, monkeypatch):
@@ -921,6 +926,230 @@ def test_reset_seed_determines_the_scene(kin):
 
     np.testing.assert_allclose(a.sim_interface.cube_poses[-1], b.sim_interface.cube_poses[-1])
     np.testing.assert_allclose(a.goal_pos, b.goal_pos)
+
+
+# ---------------------------------------------------------------------------
+# 5b. L3 perturbations
+# ---------------------------------------------------------------------------
+
+IN_TRIGGER = np.array([np.mean(cfg.CUBE_START_JITTER_TRIGGER), 0.0, 0.0])   # EE inside the trigger band
+
+
+@pytest.mark.parametrize("level", ["L1", "L2"])
+def test_perturbation_is_rejected_below_l3(level):
+    with pytest.raises(ValueError, match="only for L3"):
+        FrankaPickPlaceEnv._check_perturbation(level, "displace")
+
+
+@pytest.mark.parametrize("perturbation", [None, "push"])
+def test_l3_needs_a_known_perturbation(perturbation):
+    """L3 without a perturbation is L2 under a wrong label."""
+    with pytest.raises(ValueError, match="L3 needs"):
+        FrankaPickPlaceEnv._check_perturbation("L3", perturbation)
+
+
+@pytest.mark.parametrize("level, perturbation", [("L1", None), ("L2", None), ("L3", "displace"),
+                                                 ("L3", "goal_switch")])
+def test_valid_perturbation_settings_pass(level, perturbation):
+    FrankaPickPlaceEnv._check_perturbation(level, perturbation)
+
+
+def make_l3_env(kin, seed=0):
+    env = make_stepping_env(kin)
+    env.level = "L3"
+    env._perturbation = "displace"
+    env.reset(seed=seed)
+    return env
+
+
+OUT_OF_BAND = np.array([0.0, 0.0, 1.5 * cfg.CUBE_START_JITTER_TRIGGER[1]])   # EE above the band: arms
+
+
+def approach(env, n_outside=1):
+    """ EE outside the band for `n_outside` steps, then one step inside it. """
+    for _ in range(n_outside):
+        set_obs(env, ee_to_cube=OUT_OF_BAND)
+        env.step(np.zeros(4))
+    set_obs(env, ee_to_cube=IN_TRIGGER)
+    return env.step(np.zeros(4))
+
+
+def test_displace_fires_once_inside_the_trigger_band(kin):
+    env = make_l3_env(kin)
+    n_reset_poses = len(env.sim_interface.cube_poses)
+
+    _, _, _, _, info = approach(env)
+    approach(env)
+
+    assert len(env.sim_interface.cube_poses) == n_reset_poses + 1
+    assert info["perturbed"] is True and info["perturb_step"] == 1
+
+
+def test_displace_needs_the_ee_to_enter_the_band_from_outside(kin):
+    """Regression (26.10.2026): a cube spawned inside the band was displaced at step 0 -
+    a different start, not a perturbation during motion."""
+    env = make_l3_env(kin)
+    n_reset_poses = len(env.sim_interface.cube_poses)
+
+    for _ in range(3):
+        set_obs(env, ee_to_cube=IN_TRIGGER)
+        env.step(np.zeros(4))
+    assert len(env.sim_interface.cube_poses) == n_reset_poses
+
+    approach(env)
+    assert len(env.sim_interface.cube_poses) == n_reset_poses + 1
+
+
+def test_displaced_cube_lands_on_the_table_within_the_jitter(kin):
+    env = make_l3_env(kin)
+
+    approach(env)
+
+    new_pos = env.sim_interface.cube_poses[-1]
+    d = np.linalg.norm(new_pos[:2] - cfg.CUBE_POS_DEFAULT[:2])
+    assert cfg.CUBE_START_XY_JITTER[0] <= d <= cfg.CUBE_START_XY_JITTER[1]
+    assert new_pos[2] == pytest.approx(cfg.CUBE_POS_DEFAULT[2])
+
+
+def test_displace_skips_a_held_cube(kin):
+    env = make_l3_env(kin)
+    n_reset_poses = len(env.sim_interface.cube_poses)
+    set_obs(env, ee_to_cube=OUT_OF_BAND)
+    env.step(np.zeros(4))
+    set_obs(env, ee_to_cube=IN_TRIGGER, is_grasped=True)
+
+    _, _, _, _, info = env.step(np.zeros(4))
+
+    assert len(env.sim_interface.cube_poses) == n_reset_poses
+    assert info["perturbed"] is False and info["perturb_step"] is None
+
+
+def test_l2_never_displaces(kin):
+    env = make_stepping_env(kin)
+    env.level = "L2"
+    env.reset(seed=0)
+    n_reset_poses = len(env.sim_interface.cube_poses)
+
+    approach(env)
+
+    assert len(env.sim_interface.cube_poses) == n_reset_poses
+
+
+def test_reset_clears_the_perturbation(kin):
+    env = make_l3_env(kin)
+    approach(env)
+
+    _, info = env.reset()
+
+    assert info["perturbed"] is False and info["perturb_step"] is None
+    assert env._perturb_armed is False
+
+
+def test_same_seed_gives_the_same_displacement(kin):
+    a, b = make_l3_env(kin, seed=7), make_l3_env(kin, seed=7)
+    approach(a)
+    approach(b)
+
+    np.testing.assert_allclose(a.sim_interface.cube_poses[-1], b.sim_interface.cube_poses[-1])
+
+
+def test_perturbations_do_not_shift_the_scene_sequence(kin):
+    """Paired L2/L3 comparison: episode i has the same cube and goal on both levels,
+    however many draws the rejection sampler used in earlier episodes."""
+    l2 = make_stepping_env(kin)
+    l2.level = "L2"
+    l2.reset(seed=3)
+    l3 = make_l3_env(kin, seed=3)
+
+    for _ in range(5):
+        n_before = len(l3.sim_interface.cube_poses)
+        approach(l3)
+        assert len(l3.sim_interface.cube_poses) == n_before + 1   # the perturbation did fire
+        l2.reset()
+        l3.reset()
+        np.testing.assert_allclose(l2.sim_interface.cube_poses[-1], l3.sim_interface.cube_poses[-1])
+        np.testing.assert_allclose(l2.goal_pos, l3.goal_pos)
+
+
+def test_only_goal_switch_extends_the_episode_limit():
+    assert FrankaPickPlaceEnv._default_max_episode_steps("goal_switch") == cfg.MAX_EPISODE_STEPS_GOAL_SWITCH
+    for perturbation in (None, "displace"):
+        assert FrankaPickPlaceEnv._default_max_episode_steps(perturbation) == cfg.MAX_EPISODE_STEPS
+    assert cfg.MAX_EPISODE_STEPS_GOAL_SWITCH > cfg.MAX_EPISODE_STEPS
+
+
+TO_GOAL_FAR = np.array([cfg.GOAL_SWITCH_XY_DIST + 0.15, 0.0, 0.0])    # held cube still over the start
+TO_GOAL_NEAR = np.array([cfg.GOAL_SWITCH_XY_DIST - 0.10, 0.0, 0.0])   # held cube past the switch line
+
+
+def make_switch_env(kin, seed=0):
+    env = make_stepping_env(kin)
+    env.level = "L3"
+    env._perturbation = "goal_switch"
+    env.reset(seed=seed)
+    env.goal_pos = cfg.GOAL_LEFT.copy()
+    return env
+
+
+def carry(env, cube_to_goal, grasped=True):
+    set_obs(env, cube_to_goal=cube_to_goal, is_grasped=grasped)
+    return env.step(np.zeros(4))
+
+
+def test_goal_switch_flips_the_goal_once(kin):
+    env = make_switch_env(kin)
+
+    carry(env, TO_GOAL_FAR)
+    _, _, _, _, info = carry(env, TO_GOAL_NEAR)
+    np.testing.assert_allclose(env.goal_pos, cfg.GOAL_RIGHT)
+    assert info["perturbed"] is True and info["perturb_step"] == 1
+    assert info["goal_side"] == "right"
+
+    carry(env, TO_GOAL_FAR)
+    carry(env, TO_GOAL_NEAR)
+    np.testing.assert_allclose(env.goal_pos, cfg.GOAL_RIGHT)   # no switch back
+
+
+def test_goal_switch_needs_a_grasp_before_the_line(kin):
+    """A curriculum start holds the cube above the goal table - already past the line."""
+    env = make_switch_env(kin)
+
+    for _ in range(3):
+        carry(env, TO_GOAL_NEAR)
+
+    np.testing.assert_allclose(env.goal_pos, cfg.GOAL_LEFT)
+    assert env._perturbed is False
+
+
+def test_goal_switch_needs_the_cube_in_hand(kin):
+    env = make_switch_env(kin)
+
+    carry(env, TO_GOAL_FAR)
+    carry(env, TO_GOAL_NEAR, grasped=False)
+
+    np.testing.assert_allclose(env.goal_pos, cfg.GOAL_LEFT)
+
+
+def test_goal_switch_restarts_the_cube_to_goal_minimum(kin):
+    """The episode minimum must refer to the final goal, not to the abandoned one."""
+    env = make_switch_env(kin)
+    carry(env, TO_GOAL_FAR)
+    env._min_cube_to_goal = 0.01
+
+    carry(env, TO_GOAL_NEAR)
+
+    expected = np.linalg.norm(cfg.GOAL_RIGHT - env.sim_interface.state["cube_pos"])
+    assert env._min_cube_to_goal == pytest.approx(expected)
+
+
+def test_goal_switch_does_not_touch_the_cube(kin):
+    env = make_switch_env(kin)
+    n_reset_poses = len(env.sim_interface.cube_poses)
+
+    carry(env, TO_GOAL_FAR)
+    carry(env, TO_GOAL_NEAR)
+
+    assert len(env.sim_interface.cube_poses) == n_reset_poses
 
 
 # ---------------------------------------------------------------------------
