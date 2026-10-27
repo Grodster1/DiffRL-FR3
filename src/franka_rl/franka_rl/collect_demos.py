@@ -9,13 +9,15 @@ import numpy as np
 
 import franka_rl.config as cfg
 from franka_rl.expert import PHASE_BUDGET, ScriptedExpert
-from franka_rl.gym_env import FrankaPickPlaceEnv
+from franka_rl.gym_env import FrankaPickPlaceEnv, level_tag
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--level', type=str, default='L1', choices=['L1', 'L2', 'L3'],
                         help="Difficulty level (default: 'L1')")
+    parser.add_argument('--perturbation', type=str, default=None, choices=cfg.PERTURBATIONS,
+                        help="L3 perturbation type (default: None - required for L3)")
     parser.add_argument('--seed', type=int, default=0,
                         help="Random seed (default: 0)")
     parser.add_argument('--episodes', type=int, default=100,
@@ -29,7 +31,10 @@ def parse_args():
     parser.add_argument('--verbose', action='store_true',
                         help="Per-step phase trace (default: off)")
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    FrankaPickPlaceEnv._check_perturbation(args.level, args.perturbation)
+
+    return args
 
 def run_episode(env:FrankaPickPlaceEnv, expert:ScriptedExpert, seed, verbose=False):
     """ Rolls out one episode of actions performed by expert.
@@ -78,6 +83,9 @@ def run_episode(env:FrankaPickPlaceEnv, expert:ScriptedExpert, seed, verbose=Fal
         "terminated": bool(terminated),
         "expert_failed": bool(expert.failed),
         "failure_phase": expert.failure_phase,
+        "expert_replans": expert.replans,
+        "perturbed": bool(info["perturbed"]),
+        "perturb_step": info["perturb_step"],
     }
         
     return record, traj
@@ -100,6 +108,8 @@ def summarize(records, wall_time):
         "grasp_rate": float(np.mean([r["is_grasped"] for r in records])),
         "drop_rate": float(np.mean([r["dropped"] for r in records])),
         "expert_failure_rate": float(expert_failures / len(records)),
+        "perturbed_rate": float(np.mean([r["perturbed"] for r in records])),
+        "replan_rate": float(np.mean([r["expert_replans"] > 0 for r in records])),
         "failure_phases": dict(failure_phases.most_common()),
         "return_mean": float(returns.mean()),
         "return_std": float(returns.std()),
@@ -136,6 +146,8 @@ def print_summary(stats, grasp_dist_thresh, dt):
     print(f"sim dt mean/max     : {stats['sim_dt_mean']*1e3:.1f} / {stats['sim_dt_max']*1e3:.1f} ms "
           f"(nominal {dt*1e3:.0f})")
     print(f"expert_failure_rate : {stats['expert_failure_rate']:.3f}")
+    print(f"perturbed_rate      : {stats['perturbed_rate']:.3f}")
+    print(f"replan_rate         : {stats['replan_rate']:.3f}")
     if stats["failure_phases"]:
         breakdown = "  ".join(f"{phase}={n}" for phase, n in stats["failure_phases"].items())
         print(f"  gave up in        : {breakdown}")
@@ -143,11 +155,11 @@ def print_summary(stats, grasp_dist_thresh, dt):
 def collect_demos():
     args = parse_args()
     
-    run_name = f"demo_{args.level}_seed{args.seed}_{datetime.now():%Y%m%d_%H%M}"
+    run_name = f"demo_{level_tag(args.level, args.perturbation)}_seed{args.seed}_{datetime.now():%Y%m%d_%H%M}"
     run_dir = Path(args.output) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     
-    env = FrankaPickPlaceEnv(level=args.level)
+    env = FrankaPickPlaceEnv(level=args.level, perturbation=args.perturbation)
     expert = ScriptedExpert()
 
     # The expert's phase budgets must run out before the env truncates, otherwise
@@ -181,6 +193,7 @@ def collect_demos():
                     
                 print(f"[{attempts}] success={int(record['is_success'])} "
                       f"len={record['length']:3d} "
+                      f"pert={int(record['perturbed'])} "
                       f"phase={record['failure_phase'] or '-'} "
                       f"({n_success}/{args.episodes} collected)")
     finally:
@@ -191,6 +204,7 @@ def collect_demos():
 
     stats = summarize(records, time.monotonic() - start)
     stats["level"] = args.level
+    stats["perturbation"] = args.perturbation
     stats["seed"] = args.seed
     stats["attempts"] = attempts
     stats["demos_collected"] = n_success
@@ -198,6 +212,7 @@ def collect_demos():
     
     meta = {
         "level": args.level,
+        "perturbation": args.perturbation,
         "seed": args.seed,
         "dt": env.dt,
         "action_scale": cfg.ACTION_SCALE,

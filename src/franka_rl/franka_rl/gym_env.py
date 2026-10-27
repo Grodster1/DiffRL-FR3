@@ -8,12 +8,19 @@ import franka_rl.observations as obs
 import franka_rl.config as cfg
 from franka_rl.urdf_utils import strip_finger_mimic
 from franka_rl.kinematics import FrankaKinematics
+from franka_rl.perturbations import sample_displaced_cube
 from franka_rl.ros_bridge import SimInterface
+
+def level_tag(level, perturbation):
+    """ Level label for run names: 'L3_displace', or the bare level below L3. """
+    return f"{level}_{perturbation}" if perturbation else level
+
 
 class FrankaPickPlaceEnv(gym.Env):
     
-    def __init__(self, dt = 0.05, max_episode_steps = 200, level = 'L1', perturbation = None, curriculum_rate = 0.0,
+    def __init__(self, dt = 0.05, max_episode_steps = None, level = 'L1', perturbation = None, curriculum_rate = 0.0,
                  transport_waypoint = False):
+        self._check_perturbation(level, perturbation)
         xacro_file = "/ws/src/franka_sim/urdf/fr3_gazebo.urdf.xacro"
         urdf_str = strip_finger_mimic(xacro.process_file(xacro_file).toxml())
         with tempfile.NamedTemporaryFile(mode='w', suffix='.urdf', delete=False) as f:
@@ -21,7 +28,8 @@ class FrankaPickPlaceEnv(gym.Env):
             urdf_path = f.name
         
         self.dt = dt
-        self.max_episode_steps = max_episode_steps
+        self.max_episode_steps = (self._default_max_episode_steps(perturbation)
+                                  if max_episode_steps is None else max_episode_steps)
         self.level = level
         self._grasped = False
         self._grasped_streak = 0
@@ -30,7 +38,11 @@ class FrankaPickPlaceEnv(gym.Env):
         self._success = False
         self._dropped = False
         self._curriculum_start = False
-        self._perturbation = None
+        self._perturbation = perturbation
+        self._perturb_rng = None
+        self._perturbed = False
+        self._perturb_step = None
+        self._perturb_armed = False
         self._curriculum_rate = float(curriculum_rate)
         self._transport_waypoint = bool(transport_waypoint)
         self._min_ee_to_cube = np.inf
@@ -51,6 +63,22 @@ class FrankaPickPlaceEnv(gym.Env):
         self.action_space = gym.spaces.Box(-1.0, 1.0, (4,), dtype=np.float32) # [dx, dy, dz, g]
         _, self.R_frozen = self.kin.fk(cfg.Q_READY)
     
+    @staticmethod
+    def _check_perturbation(level, perturbation):
+        """ L3 = L2 + exactly one perturbation type; L1/L2 never perturb. """
+        if level != "L3":
+            if perturbation is not None:
+                raise ValueError(f"Perturbation '{perturbation}' is available only for L3, got level {level}")
+            return
+
+        if perturbation not in cfg.PERTURBATIONS:
+            raise ValueError(f"L3 needs a perturbation from {cfg.PERTURBATIONS}, got {perturbation!r}")
+
+    @staticmethod
+    def _default_max_episode_steps(perturbation):
+        """ Only goal_switch gets a longer horizon """
+        return cfg.MAX_EPISODE_STEPS_GOAL_SWITCH if perturbation == "goal_switch" else cfg.MAX_EPISODE_STEPS
+
     @property
     def obs_dict(self):
         return self._last_obs_dict
@@ -123,6 +151,53 @@ class FrankaPickPlaceEnv(gym.Env):
             self._grasped_streak = 0
         return self._grasped
         
+    def _maybe_perturb(self):
+        """ L3: at most one perturbation per episode, triggered by the scene state, not by
+            step number - methods move at different speeds."""
+        if self._perturbation is None or self._perturbed:
+            return
+        if self._perturbation == "displace":
+            self._maybe_displace()
+        else:
+            self._maybe_switch_goal()
+
+    def _maybe_switch_goal(self):
+        """ 'goal_switch': once the held cube is GOAL_SWITCH_XY_DIST from its goal, the goal
+            moves to the other side table. """
+        grasped = self._last_obs_dict["is_grasped"]
+        d = np.linalg.norm(self._last_obs_dict["cube_to_goal"][:2])
+        if grasped and d > cfg.GOAL_SWITCH_XY_DIST:
+            self._perturb_armed = True
+        if not (self._perturb_armed and grasped and d <= cfg.GOAL_SWITCH_XY_DIST):
+            return
+
+        self.goal_pos = (cfg.GOAL_RIGHT if self.goal_pos[1] > 0 else cfg.GOAL_LEFT).copy()
+        self._min_cube_to_goal = np.inf     # the episode minimum refers to the final goal only
+        self._perturbed = True
+        self._perturb_step = self._step_count
+
+    def _maybe_displace(self):
+        """ 'displace': when the EE closes in on a cube it does not hold, teleports the
+            cube 5-15 cm away. """
+        if self._last_obs_dict["is_grasped"]:
+            return
+
+        d = np.linalg.norm(self._last_obs_dict["ee_to_cube"])
+
+        if d > cfg.CUBE_START_JITTER_TRIGGER[1]:
+            self._perturb_armed = True
+        if not self._perturb_armed or not cfg.CUBE_START_JITTER_TRIGGER[0] <= d <= cfg.CUBE_START_JITTER_TRIGGER[1]:
+            return
+
+        ee_pos = self._last_obs_dict["ee_pos"]
+        cube_pos = ee_pos + self._last_obs_dict["ee_to_cube"]
+        new_pos = sample_displaced_cube(self._perturb_rng, cube_pos, ee_pos,
+                                        cfg.CUBE_START_XY_BOX, cfg.CUBE_START_XY_JITTER,
+                                        cfg.CUBE_START_EE_CLEARANCE, cfg.CUBE_START_MAX_TRIES)
+        self.sim_interface.set_cube_pose(new_pos)
+        self._perturbed = True
+        self._perturb_step = self._step_count
+
     def _sample_cube_pos(self):
         """ Samples cube's starting position - used for L2. """
         x = self.np_random.uniform(0.4, 0.6)
@@ -132,9 +207,7 @@ class FrankaPickPlaceEnv(gym.Env):
     
     def _transport_distance(self, is_in_goal_bounds_xy):
         """ Remaining transport distance. Straight line to the goal by default.
-            With `transport_waypoint`, until the cube is above the goal table the path
-            goes through a point TRANSPORT_CLEARANCE above the goal: the straight line
-            rewards skimming the table edge (L2, 10.2026). """
+            With `transport_waypoint' the path goes through a point TRANSPORT_CLEARANCE above the goal """
         cube_to_goal = self._last_obs_dict["cube_to_goal"]
         if not self._transport_waypoint or is_in_goal_bounds_xy:
             return np.linalg.norm(cube_to_goal)
@@ -242,7 +315,9 @@ class FrankaPickPlaceEnv(gym.Env):
             "drop_x": float(self._drop_xy[0]),
             "drop_y": float(self._drop_xy[1]),
             "curriculum_start": self._curriculum_start,
-            "goal_side": "left" if self.goal_pos[1] > 0 else "right"
+            "goal_side": "left" if self.goal_pos[1] > 0 else "right",
+            "perturbed": self._perturbed,
+            "perturb_step": self._perturb_step
         }
     
     def _compute_reward(self, action, just_grasped, success):
@@ -309,6 +384,13 @@ class FrankaPickPlaceEnv(gym.Env):
         """ Sequence: move away arm -> spawn cube """
         
         super().reset(seed=seed)
+        if seed is not None:
+            self._perturb_rng = np.random.default_rng([seed, cfg.PERTURB_RNG_STREAM])
+        elif self._perturb_rng is None:
+            self._perturb_rng = np.random.default_rng()
+        self._perturbed = False
+        self._perturb_step = None
+        self._perturb_armed = False
         self._step_count = 0
         self._ik_failures = 0
         self._grasped_streak = 0
@@ -357,6 +439,7 @@ class FrankaPickPlaceEnv(gym.Env):
         self._record_control_period(self.sim_interface.sim_time())
         self.sim_interface.publish_arm_command(q_target, self.dt)
         self.sim_interface.publish_gripper_command(opening, self.dt)
+        self._maybe_perturb()
         self.sim_interface.reserve_t(self.dt)
         
         observation = self._get_obs()
@@ -398,7 +481,6 @@ class FrankaPickPlaceEnv(gym.Env):
         if getattr(self, "_owns_rclpy", False) and rclpy.ok():
             rclpy.shutdown()
             self._owns_rclpy = False
-        
         
         
         

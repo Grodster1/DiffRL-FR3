@@ -71,5 +71,13 @@ CURRICULUM_HEIGHT = (0.05, 0.2)
 CURRICULUM_XY_JITTER = 0.075
 
 # Level 3
+PERTURBATIONS = ("displace", "goal_switch")
+PERTURB_RNG_STREAM = 1
 CUBE_START_XY_JITTER = (0.05, 0.15)
 CUBE_START_JITTER_TRIGGER = (0.08, 0.12)
+CUBE_START_XY_BOX = np.array([[0.25, -0.25], [0.60, 0.25]])  # [Z] IK from Q_READY converges on a 5 cm grid at z=0.425 and HOVER_Z=0.55; x=0.65 fails at hover for |y|>0.15
+CUBE_START_EE_CLEARANCE = 0.07                               # [W] open finger 0.04 from EE axis + cube half-side 0.025 + 0.005 margin: no overlap with the fingers in XY
+CUBE_START_MAX_TRIES = 1000                                  # [Z] worst-case acceptance 4.6%
+GOAL_SWITCH_XY_DIST = 0.45           # [W] start-to-goal XY is 0.515-0.94 m (L2 spawn corners), never crossed at reset; on the direct path still above the main table
+MAX_EPISODE_STEPS = 200
+MAX_EPISODE_STEPS_GOAL_SWITCH = 300  # [P] expert measured max 171 / p90 162 (40 demos); margin for policies slower than the expert

@@ -8,6 +8,7 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 import franka_rl.config as cfg
+from franka_rl.gym_env import FrankaPickPlaceEnv, level_tag
 from franka_rl.run_config import write_run_config
 from franka_rl.train_sac import (WAYPOINT_SUFFIX, check_resume_reward, make_env,
                                  monitor_path, remaining_timesteps, saved_timesteps)
@@ -69,6 +70,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--level', type=str, default='L1', choices=['L1', 'L2', 'L3'],
                         help="Difficulty level (default: 'L1')")
+    parser.add_argument('--perturbation', type=str, default=None, choices=cfg.PERTURBATIONS,
+                        help="L3 perturbation type (default: None - required for L3)")
     parser.add_argument('--seed', type=int, default=0,
                         help="Random seed (default: 0)")
     parser.add_argument('--timesteps', type=int, default=5000,
@@ -94,6 +97,7 @@ def parse_args():
 def parse_checked(args):
     if args.save_freq < 1 or args.checkpoint_freq < 1:
         raise ValueError("Both --save-freq and --checkpoint-freq must be positive")
+    FrankaPickPlaceEnv._check_perturbation(args.level, args.perturbation)
 
     return args
 
@@ -106,7 +110,7 @@ def train_ppo():
         check_resume_reward(run_dir, args.transport_waypoint)
         budget = remaining_timesteps(args.timesteps, saved_timesteps(model_path))
     else:
-        run_name = f"ppo_{args.level}_seed{args.seed}_{datetime.now():%Y%m%d_%H%M}"
+        run_name = f"ppo_{level_tag(args.level, args.perturbation)}_seed{args.seed}_{datetime.now():%Y%m%d_%H%M}"
         if args.transport_waypoint:
             run_name += WAYPOINT_SUFFIX
         run_dir = Path(args.output) / run_name
@@ -118,7 +122,7 @@ def train_ppo():
     run_dir.mkdir(parents=True, exist_ok=True)
 
     env = make_env(args.level, args.seed, monitor_path(run_dir, bool(args.resume)),
-                   args.curriculum_rate, args.transport_waypoint)
+                   args.curriculum_rate, args.transport_waypoint, args.perturbation)
     venv = DummyVecEnv([lambda: env])
     if vecnorm_path:
         venv = VecNormalize.load(str(vecnorm_path), venv)

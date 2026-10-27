@@ -7,7 +7,7 @@ from stable_baselines3 import SAC
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.save_util import load_from_zip_file
-from franka_rl.gym_env import FrankaPickPlaceEnv
+from franka_rl.gym_env import FrankaPickPlaceEnv, level_tag
 from franka_rl.run_config import write_run_config
 
 EPISODE_INFO_KEYS = ("is_success", "is_grasped", "dropped", "min_ee_to_cube",
@@ -18,8 +18,9 @@ WAYPOINT_SUFFIX = "_wp"
 RESUME_MODEL = "latest.zip"
 RESUME_BUFFER = "latest_replay_buffer.pkl"
 
-def make_env(level, seed, monitor_path=None, curriculum_rate = 0.0, transport_waypoint = False):
-    env = FrankaPickPlaceEnv(level=level, curriculum_rate=curriculum_rate,
+def make_env(level, seed, monitor_path=None, curriculum_rate = 0.0, transport_waypoint = False,
+             perturbation = None):
+    env = FrankaPickPlaceEnv(level=level, perturbation=perturbation, curriculum_rate=curriculum_rate,
                              transport_waypoint=transport_waypoint)
     env = Monitor(env, monitor_path, info_keywords=EPISODE_INFO_KEYS)
     env.reset(seed=seed)
@@ -78,10 +79,7 @@ def saved_timesteps(model_path):
     return data["num_timesteps"]
 
 def remaining_timesteps(target, done):
-    """ SB3 adds `total_timesteps` to the step counter when `reset_num_timesteps=False`,
-        so passing the target verbatim would overshoot by everything already trained.
-        `--timesteps` is a target here, not a per-invocation budget: resuming a run to
-        the same number is a no-op, not another full run. """
+    """ SB3 adds `total_timesteps` to the step counter. """
 
     left = target - done
 
@@ -135,7 +133,7 @@ def parse_args():
                         help="Steps between policy checkpoints (default: 20000)")
     parser.add_argument('--transport-waypoint', action='store_true',
                         help="Transport reward through a point above the goal table (default: straight line)")
-    parser.add_argument('--perturbation', type=str, default=None, choices=["displace", "goal_switch"],
+    parser.add_argument('--perturbation', type=str, default=None, choices=cfg.PERTURBATIONS,
                         help="Perturbation type for Level 3 (default: None)")
 
     return parse_checked(parser.parse_args())
@@ -143,8 +141,7 @@ def parse_args():
 def parse_checked(args):
     if args.save_freq < 1 or args.checkpoint_freq < 1:
         raise ValueError("Both --save-freq and --checkpoint-freq must be positive")
-    if args.level != "L3" and args.perturbation != None:
-        raise ValueError("Perturbation option is available only for L3")
+    FrankaPickPlaceEnv._check_perturbation(args.level, args.perturbation)
 
     return args
 
@@ -156,7 +153,7 @@ def train_sac():
         check_resume_reward(run_dir, args.transport_waypoint)
         budget = remaining_timesteps(args.timesteps, saved_timesteps(model_path))
     else:
-        run_name = f"sac_{args.level}_seed{args.seed}_{datetime.now():%Y%m%d_%H%M}"
+        run_name = f"sac_{level_tag(args.level, args.perturbation)}_seed{args.seed}_{datetime.now():%Y%m%d_%H%M}"
         if args.transport_waypoint:
             run_name += WAYPOINT_SUFFIX
         run_dir = Path(args.output) / run_name
@@ -168,7 +165,7 @@ def train_sac():
     run_dir.mkdir(parents=True, exist_ok=True)
 
     env = make_env(args.level, args.seed, monitor_path(run_dir, bool(args.resume)),
-                   args.curriculum_rate, args.transport_waypoint)
+                   args.curriculum_rate, args.transport_waypoint, args.perturbation)
     tb_log = str(run_dir / "tb") if args.tensorboard else None
 
     if model_path:

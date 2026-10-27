@@ -15,13 +15,15 @@ from pathlib import Path
 import numpy as np
 
 import franka_rl.config as cfg
-from franka_rl.gym_env import FrankaPickPlaceEnv
+from franka_rl.gym_env import FrankaPickPlaceEnv, level_tag
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--level', type=str, default='L1', choices=['L1', 'L2', 'L3'],
                         help="Difficulty level (default: 'L1')")
+    parser.add_argument('--perturbation', type=str, default=None, choices=cfg.PERTURBATIONS,
+                        help="L3 perturbation type (default: None - required for L3)")
     parser.add_argument('--seed', type=int, default=0,
                         help="Random seed (default: 0)")
     parser.add_argument('--episodes', type=int, default=100,
@@ -29,7 +31,10 @@ def parse_args():
     parser.add_argument('--output', type=str, default='data/runs',
                         help="Root dir for run outputs (default: data/runs)")
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    FrankaPickPlaceEnv._check_perturbation(args.level, args.perturbation)
+
+    return args
 
 
 def run_episode(env:FrankaPickPlaceEnv, action_rng):
@@ -104,11 +109,11 @@ def print_summary(stats, grasp_dist_thresh):
 def random_baseline():
     args = parse_args()
 
-    run_name = f"random_{args.level}_seed{args.seed}_{datetime.now():%Y%m%d_%H%M}"
+    run_name = f"random_{level_tag(args.level, args.perturbation)}_seed{args.seed}_{datetime.now():%Y%m%d_%H%M}"
     run_dir = Path(args.output) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    env = FrankaPickPlaceEnv(level=args.level)
+    env = FrankaPickPlaceEnv(level=args.level, perturbation=args.perturbation)
     env.reset(seed=args.seed)
     action_rng = np.random.default_rng(args.seed)
 
@@ -133,6 +138,7 @@ def random_baseline():
 
     stats = summarize(records, time.monotonic() - start)
     stats["level"] = args.level
+    stats["perturbation"] = args.perturbation
     stats["seed"] = args.seed
     with open(run_dir / "summary.json", "w") as f:
         json.dump(stats, f, indent=2)

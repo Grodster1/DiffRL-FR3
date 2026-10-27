@@ -13,6 +13,7 @@ import numpy as np
 from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.utils import set_random_seed
 
+import franka_rl.config as cfg
 from franka_rl.gym_env import FrankaPickPlaceEnv
 
 MODEL_IN_RUN_DIR = "latest.zip"
@@ -27,6 +28,8 @@ def parse_args():
                         help="Algorithm of the model (default: from the run name, sac_* / ppo_*)")
     parser.add_argument('--level', type=str, default='L1', choices=['L1', 'L2', 'L3'],
                         help="Difficulty level (default: 'L1')")
+    parser.add_argument('--perturbation', type=str, default=None, choices=cfg.PERTURBATIONS,
+                        help="L3 perturbation type (default: None - required for L3)")
     parser.add_argument('--seed', type=int, default=1000,
                         help="Seed of the evaluation episodes - keep it away from training seeds (default: 1000)")
     parser.add_argument('--episodes', type=int, default=50,
@@ -46,6 +49,7 @@ def parse_checked(args):
         raise ValueError("--episodes must be positive")
     if not 0.0 <= args.curriculum_rate <= 1.0:
         raise ValueError("--curriculum-rate must be in [0, 1]")
+    FrankaPickPlaceEnv._check_perturbation(args.level, args.perturbation)
 
     return args
 
@@ -111,6 +115,8 @@ def run_episode(env: FrankaPickPlaceEnv, act):
         "dropped": bool(info["dropped"]),
         "curriculum_start": bool(info["curriculum_start"]),
         "goal_side": info["goal_side"],
+        "perturbed": bool(info["perturbed"]),
+        "perturb_step": info["perturb_step"],
         "release_attempts": release_attempts,
         "min_ee_to_cube": float(info["min_ee_to_cube"]),
         "min_cube_to_goal": float(info["min_cube_to_goal"]),
@@ -176,12 +182,14 @@ def evaluate_sac():
         return action
 
     mode = "stochastic" if args.stochastic else "deterministic"
-    run_name = (f"{model_path.parent.name}_{model.num_timesteps}_{mode}"
+    pert = f"_{args.perturbation}" if args.perturbation else ""
+    run_name = (f"{model_path.parent.name}_{model.num_timesteps}_{mode}{pert}"
                 f"_cr{args.curriculum_rate:g}_seed{args.seed}_{datetime.now():%Y%m%d_%H%M}")
     run_dir = Path(args.output) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    env = FrankaPickPlaceEnv(level=args.level, curriculum_rate=args.curriculum_rate)
+    env = FrankaPickPlaceEnv(level=args.level, perturbation=args.perturbation,
+                             curriculum_rate=args.curriculum_rate)
     if env.observation_space.shape != model.observation_space.shape:
         env.close()
         raise ValueError(f"Model observation shape {model.observation_space.shape} "
@@ -199,7 +207,7 @@ def evaluate_sac():
                 f.flush()
                 print(f"[{i + 1}/{args.episodes}] return={record['return']:8.2f} "
                       f"len={record['length']:3d} cur={int(record['curriculum_start'])} "
-                      f"goal={record['goal_side']:5s} "
+                      f"goal={record['goal_side']:5s} pert={int(record['perturbed'])} "
                       f"grasp={int(record['is_grasped'])} release_att={record['release_attempts']:3d} "
                       f"success={int(record['is_success'])} drop={int(record['dropped'])} "
                       f"xy={record['final_cube_to_goal_xy']:.3f}")
@@ -213,6 +221,9 @@ def evaluate_sac():
     if 0.0 < args.curriculum_rate < 1.0:
         groups["standard_start"] = [r for r in records if not r["curriculum_start"]]
         groups["curriculum_start"] = [r for r in records if r["curriculum_start"]]
+    if args.perturbation:
+        groups["perturbed"] = [r for r in records if r["perturbed"]]
+        groups["unperturbed"] = [r for r in records if not r["perturbed"]]
     for side in ("left", "right"):
         if args.level != "L1":
             groups[f"goal_{side}"] = [r for r in records if r["goal_side"] == side]
@@ -223,6 +234,7 @@ def evaluate_sac():
         "num_timesteps": int(model.num_timesteps),
         "mode": mode,
         "level": args.level,
+        "perturbation": args.perturbation,
         "seed": args.seed,
         "curriculum_rate": args.curriculum_rate,
         "wall_time_s": time.monotonic() - start,
