@@ -482,6 +482,140 @@ Polityka (ΔEE @ 10-20 Hz)
   jako przeciwwaga dla scenariuszy sprzyjających DP. Perturbacje są tanie: `set_cube_pose` w
   trakcie epizodu.
 
+### Poziom L3 - perturbacje (decyzje 19-26.10.2026)
+
+- **Wzorzec: eksperymenty odporności z Push-T w Chi et al. (2023)** - człowiek przesuwa obiekt w
+  trakcie wykonania, polityka musi przeplanować. Wzorzec z pracy o DP jest celowy: test nie jest
+  ustawiony pod RL. Odpowiednik u nas to teleport kostki przez `set_cube_pose`. Odrzucono
+  przeciwnika przykładającego siły w stylu RARL (Pinto et al., 2017): to metoda treningu
+  odporności RL, a nie neutralny test porównawczy, a siły w Gazebo wymagałyby wrench pluginu.
+  Teleport jest tańszy i powtarzalny co do seeda.
+- **Typy perturbacji: `displace` i `goal_switch` (oba zrobione, 26.10.2026).** `displace`
+  przesuwa kostkę o 5-15 cm, zanim zostanie chwycona. `goal_switch` zamienia stół celu na
+  przeciwny w trakcie transportu - bez fizyki i bez losowania (strumień RNG nietknięty). Trzeci kandydat, wybicie kostki z chwytaka, **odłożony**: teleport kostki
+  ściśniętej w palcach grozi niestabilnością kontaktu w DART, a ekspert musiałby umieć ponowić
+  chwyt z LIFT/TRANSPORT. Jedno zdarzenie na epizod.
+- **Wyzwalanie stanem sceny, nie numerem kroku.** Metody poruszają się z różną prędkością, więc
+  stały krok trafiałby u jednej w podejście, a u drugiej w transport. `displace` odpala, gdy
+  kostka nie jest chwycona, a odległość EE-kostka w 3D mieści się w `CUBE_START_JITTER_TRIGGER`
+  (8-12 cm). Przy zawisie eksperta 12.5 cm nad kostką wypada to na początku schodzenia.
+  **Wyzwalacz jest uzbrajany dopiero, gdy EE był dalej niż 12 cm** - EE w `Q_READY` stoi w
+  (0.307, 0, 0.487), czyli ~11 cm od kostki w (0.4, 0), więc bez tego część epizodów miała
+  perturbację w kroku 0, co jest inną pozycją startową, a nie zakłóceniem w ruchu.
+  **Otwarte:** po uzbrojeniu został 1/40 epizod z `perturb_step = 1` (kostka tuż za pasmem,
+  pierwszy krok APPROACH wprowadza EE w pasmo). Jeśli perturbacja ma zawsze trafiać tuż przed
+  chwyt, dodać warunek „EE prawie nad kostką w XY".
+- **`goal_switch` odpala, gdy chwycona kostka jest bliżej niż `GOAL_SWITCH_XY_DIST` = 0.45 m
+  od celu w XY.** Odległość start-cel w XY to 0.515-0.94 m (rogi strefy L2), więc próg nigdy nie
+  jest przekroczony na starcie, a na bezpośredniej trasie punkt 0.45 m od celu (~(0.31, ±0.20))
+  leży jeszcze nad stołem głównym: polityka zdecydowała się na stronę, ale nie dojechała do
+  szczeliny. Koszt zawrócenia ~0.8 m. Uzbrajanie jak przy `displace`: chwyt dalej niż próg, bo
+  start z curriculum trzyma kostkę nad stołem celu i zamieniałby cel w kroku 0. W chwili
+  zamiany zerowane jest `_min_cube_to_goal` (metryka odnosi się do celu końcowego), `goal_side`
+  w `info` pokazuje cel końcowy. **Rozważony wariant: zamiana po wyjściu kostki za obrys stołu
+  głównego** (później, ~0.29 m przed celem, czytelny warunek geometryczny). Odrzucony na rzecz
+  stałego progu, bo moment przekroczenia obrysu zależy od trasy (0.24-0.35 m od celu przy
+  ścinaniu narożnika), a koszt powrotu wychodzi prawie ten sam (~0.86 vs ~0.83 m).
+- **Nowa pozycja kostki: losowanie z odrzucaniem w pudełku o zmierzonym zasięgu.** Przesunięcie
+  wokół startu L2 bez ograniczeń daje x ∈ [0.25, 0.75] - kostka zostaje na stole, ale robot
+  nie sięga. Siatka IK co 5 cm (DLS, zamrożona orientacja, łańcuch z `Q_READY`, 20.10.2026):
+  chwyt (z = 0.425) zawodzi od x = 0.70 przy |y| > 0.20 i wszędzie przy x = 0.75, zawis
+  (z = 0.55) od x = 0.60 przy |y| ≥ 0.30, a x = 0.70 jest nieosiągalne w całości (do tego
+  `WORKSPACE_BOX` przycina EE do x ≤ 0.70). Epizod z nieosiągalną kostką mierzy geometrię, nie
+  odporność. Stąd `CUBE_START_XY_BOX` = [0.25, 0.60] x [−0.25, 0.25] (osiągalne na obu
+  wysokościach) i warunki odrzucenia: przesunięcie w `CUBE_START_XY_JITTER` oraz odstęp od XY
+  chwytaka > `CUBE_START_EE_CLEARANCE` = 0.07 (palec 4 cm od osi + pół kostki + zapas - bez tego
+  kostka mogłaby wylądować pod palcami albo w nie wejść). Najgorsza zmierzona akceptacja: 4.6%
+  (kostka w rogu L2, chwytak od środka), więc `CUBE_START_MAX_TRIES = 1000`; przy 100 wyjątek
+  leciałby w ~1% takich epizodów. Wyczerpanie prób rzuca wyjątkiem - `None` dałby po cichu
+  epizod L3 bez perturbacji. Sampler jest czystą funkcją w `perturbations.py` (test na wielu
+  seedach bez Gazebo).
+- **Osobny strumień losowy perturbacji (`[seed, PERTURB_RNG_STREAM]`).** Odrzucanie zużywa
+  zmienną liczbę losowań; na wspólnym `np_random` rozjechałyby się kolejne sceny. Z osobnym
+  strumieniem epizod i na L3 ma tę samą kostkę i cel co na L2 dla tego samego seeda -
+  **porównanie L2 → L3 jest sparowane**. Generator tworzony tylko przy podanym seedzie, jak
+  `np_random` w Gymnasium.
+- **Walidacja: L3 wymaga typu perturbacji, L1/L2 go zabraniają.** L3 bez perturbacji to L2 pod
+  złą etykietą. Jedna funkcja (`FrankaPickPlaceEnv._check_perturbation`) w środowisku i we
+  wszystkich skryptach, przed utworzeniem katalogu runu.
+- **Protokół: główny wynik zero-shot** - polityki trenowane na L2 (SAC `_wp`, DP z demo L2)
+  ewaluowane na L3. Odporność czytana tylko z epizodów, w których perturbacja zaszła (grupa
+  `perturbed` w `summary.json`); odsetek epizodów bez perturbacji raportowany osobno, żeby
+  polityka, która nie podjeżdża do kostki, nie zawyżała wyniku. Trening na L3 (SAC, DP na demo
+  z perturbacjami) - drugi etap.
+- **Ekspert musiał nauczyć się przeplanowania (26.10.2026).** Pierwszy przebieg L3 `displace`
+  (`demo_L3_displace_seed0_20261026_1544`): **17/40**, wszystkie 23 porażki w DESCEND i w każdej
+  `length − perturb_step = 17`, czyli równo budżet fazy (18). DESCEND celował w przesuniętą
+  kostkę po skosie i nie zdążał. Dla DP to podwójnie złe: zapisywane są tylko sukcesy, więc
+  zbiór miałby prawie same małe przesunięcia i zero przykładów ponownego podejścia. Poprawka:
+  błąd XY > `REPLAN_XY_TOL` = 3 cm w DESCEND → powrót do APPROACH z wyzerowanym budżetem
+  (APPROACH kończy się w 1 cm, więc próg nie odpala przy zwykłym chwycie). Po poprawce na tych
+  samych seedach (`demo_L3_displace_seed0_20261026_1551`): **40/40**, `replan_rate` 0.975.
+- **To samo przy `goal_switch`: budżet TRANSPORT (26.10.2026).** TRANSPORT jedzie za celem z
+  obserwacji, więc skręca sam; ekspert wykrywa zmianę celu (skok > 5 cm), zeruje licznik fazy, a
+  z PLACE wraca do TRANSPORT (nie opuszcza kostki ku staremu celowi). Pierwszy przebieg
+  (`demo_L3_goal_switch_seed0_20261026_2009`): **37/40**, trzy porażki w TRANSPORT, każda
+  `length − perturb_step = 76` - budżet 75 nie mieści drogi powrotnej (~0.8 m obok podstawy
+  robota, dłuższej niż najdłuższy zwykły transport). Ogólne podniesienie budżetu złamałoby
+  asercję `collect_demos` (suma budżetów < 200 na L1/L2), więc dłuższy budżet
+  (`SWITCH_TRANSPORT_BUDGET` = 120) dostaje tylko transport po zamianie. Po poprawce
+  (`demo_L3_goal_switch_seed0_20261026_2012`): **40/40**, `replan_rate` 1.0, zamiana w krokach
+  49-92.
+- **Horyzont 200 kroków wystarcza dla `displace`:** epizody eksperta 115 średnio, p90 126,
+  max 142. Na L2 limit nie był aktywny (SAC max 124, ekspert 139), więc L2 przy dłuższym
+  limicie dałby te same wyniki.
+- **Limit 300 kroków tylko dla `goal_switch`.** Ekspert: średnio 142, p90 162, max 171 -
+  zmieściłby się w 200 z zapasem 29 kroków. 300 zostaje jako zapas dla polityk wolniejszych od
+  eksperta (SAC na L2 był szybszy od eksperta, DP nie zmierzony); wartość do ewentualnego
+  zmniejszenia po pierwszych ewaluacjach. Limit nie wpływa na zachowanie polityk trenowanych przy
+  200 (czasu nie ma w obserwacji). L1/L2/`displace` zostają przy 200, więc ich wyniki są
+  porównywalne z wcześniejszymi.
+- **Zero-shot SAC L2 → L3 (26.10.2026).** `sac_L2_seed0_20261012_1406_wp`, deterministycznie,
+  seed 1000 (te same sceny co ewaluacja L2: 98/100, porażki IK 0.013 na krok):
+
+  | Wariant | Sukces | Porażki IK na krok | Katalog w `evaluation/` |
+  |---|---|---|---|
+  | `displace` | **96/100** (lewy 51/51, prawy 45/49) | 0.000 | `..._displace_cr0_seed1000_20261026_2027` |
+  | `goal_switch`, cel końcowy prawy (start lewy) | **46/47** | 0.000 | `..._goal_switch_cr0_seed1000_20261026_2031` |
+  | `goal_switch`, cel końcowy lewy (start prawy) | **12/53** | **0.651** | jw. |
+
+  `goal_switch` łącznie 58/100; perturbacja zaszła w 94/100 epizodów (6 bez niej - chwyt lub
+  zrzut przed progiem). **`displace` polityka znosi prawie bez straty** - widzi pozycję kostki
+  w każdym kroku i po prostu za nią jedzie. **`goal_switch` przegrywa w jedną stronę.**
+- **Mechanizm porażki prawy → lewy: limit `joint2` za podstawą + zakleszczenie (26.10.2026,
+  diagnoza na żywym Gazebo, 3 epizody, ten sam przebieg w każdym).** Po zamianie celu SAC tnie
+  najkrótszą drogą w XY i wjeżdża EE prawie nad podstawę robota - 5-8 cm od osi `joint1`, za
+  nią i w lewo (`x ≈ −0.05, y ≈ +0.05, z ≈ 0.52-0.54`) - naciskając przy tym w dół (`a_z ≈ −1`).
+  Taki stan nie występował w L2 (poza rozkładem treningowym). Żeby zejść tam z chwytakiem
+  pionowo w dół, bark musi odchylić się do tyłu: rozwiązanie IK z zakleszczonej pozy wymaga
+  `joint2 = −1.839` - **poza fizycznym limitem** (±1.836), a tym bardziej poza zakresem z
+  `CLIP_MARGIN` (−1.786); nawet z `Q_READY` ten sam punkt wymaga `joint2 = −1.778`, 8 mrad od
+  granicy. **To skraj przestrzeni roboczej, nie osobliwość**: najmniejsza wartość singularna
+  jakobianu w tej pozie to 0.22, tyle co w pozie ready (0.2211). Promieniowy test zasięgu z
+  `Q_READY` potwierdza strefę: w kierunku 135° (za podstawą, po lewej) IK zawodzi od r = 0.30 m
+  przy z = 0.45 i od r = 0.20 m przy z = 0.65; w pozostałych badanych kierunkach (0°, ±45°,
+  ±90°) dochodzi do osi. IK kończy się `max_iters`, `step()` trzyma ramię w miejscu, stan się
+  nie zmienia, a deterministyczna polityka powtarza tę samą akcję - **stan pochłaniający**
+  (w jednym epizodzie 226 kolejnych porażek IK, do limitu 300 kroków). Asymetria lewo/prawo
+  pochodzi z polityki, nie z robota: w drugą stronę SAC wybiera trasę omijającą strefę.
+  Ekspert tam nie wjeżdża (jego trasa jest ≥ 0.36 m od osi), więc demo L3 są czyste.
+- **Decyzja: wynik zostaje, środowisko bez zmian (26.10.2026).** Porażka jest prawdziwa -
+  polityka sama kieruje ramię w niewykonalny cel - i niesie treść do pracy: SAC uogólnia się
+  na perturbację obserwowaną wprost (`displace`), a nie na zmianę zadania, której trasy nie
+  widział (`goal_switch`). `ik_failure_rate` w podsumowaniu ewaluacji odróżnia ten tryb porażki
+  od „chybił celu" i trzeba go raportować obok sukcesu. Odrzucone:
+  - *strefa zakazana wokół osi podstawy* (cylinder ~0.2 m, rzutowanie `p_des` na brzeg, jak
+    `WORKSPACE_BOX`) - nie dotyka żadnej sensownej trasy, ale to zmiana środowiska po fakcie,
+    promień wymagałby pomiaru (w kierunku 135° strefa zaczyna się od 0.30 m), a wszystkie
+    ewaluacje L2/L3 trzeba by powtórzyć;
+  - *ruch częściowy przy porażce IK* zamiast stania - usuwa zakleszczenie, ale zmienia tor
+    sterowania, co unieważnia SAC L1/L2 i demonstracje (ta sama zasada co przy
+    `MAX_JOINT_VEL`).
+
+  **Uwaga na DP:** zero-shot z demo L2 może trafić w tę samą strefę z tego samego powodu (brak
+  takich stanów w danych); DDIM z ustalonym ziarnem jest deterministyczny, więc zakleszczenie
+  działa tak samo. Wtedy to porównywalny tryb porażki, nie artefakt jednej metody.
+
 ### Ewaluacja i eksperymenty - ustalenia
 
 - Protokół: ≥50 epizodów testowych x ≥3 seedy treningowe, średnia ± odchylenie, identyczne ziarna randomizacji sceny dla wszystkich metod.
@@ -982,6 +1116,15 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
 11. **TODO (kolejność):** zebranie demo L1 (nowe budżety eksperta) → SAC L1 z
     `--transport-waypoint` (jeden przepis na oba poziomy) → zebranie demo L2 → DP na L1 i L2 → wspólna ewaluacja → L3 (perturbacje)
     → opcjonalnie multimodalność (DP vs BC-MLP). Równolegle: PPO (pomiar przepustowości).
+12. L3 - **DONE (26.10.2026)**: `displace` i `goal_switch` w `gym_env`, sampler w
+    `perturbations.py`, flaga `--perturbation` we wszystkich skryptach, ekspert z
+    przeplanowaniem (40/40 na obu perturbacjach), limit 300 kroków dla `goal_switch`.
+    Zero-shot SAC L2 → L3 - **DONE (26.10.2026)**: `displace` 96/100, `goal_switch` 58/100
+    (prawy → lewy 12/53, zakleszczenie na limicie `joint2` za podstawą; środowisko bez zmian).
+    **TODO:** sprawdzanie zgodności perturbacji przy `--resume`, decyzja o warunku XY w
+    wyzwalaczu `displace`, demo L3 z `--save`, decyzja o treningu SAC na L3 (od zera, tym samym
+    przepisem; dotrenowanie L2 → L3 tylko jako ablacja), ewentualne zmniejszenie limitu
+    `goal_switch` po pomiarze polityk.
 
 ---
 
@@ -1015,6 +1158,15 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
 | `MAX_JOINT_VEL = 1.0` rad/s zostaje | Zmierzona ucieczka `joint2` od ~2 rad/s; zero blokad od wdrożenia; zmiana unieważniłaby SAC L1 i demo |
 | `franka_diffusion` jako osobny pakiet | Trening DP bez ROS i bez Gazebo; zależność tylko w `eval.py` |
 | L3 = perturbacje, nie przeszkoda | Przeszkoda testuje multimodalność (problem imitacji, nie RL); drogie; L3 równoważy scenariusze sprzyjające DP |
+| L3: teleport kostki zamiast sił (RARL) | Wzorzec Push-T z pracy o DP; powtarzalny co do seeda; siły = metoda treningu RL i wrench plugin |
+| Wyzwalanie perturbacji odległością EE-kostka, nie krokiem | Metody mają różne tempo; stały krok trafiałby w różne fazy zadania |
+| Nowa pozycja kostki z pudełka o zmierzonym zasięgu IK | Bez tego część pozycji nieosiągalna - wynik mierzyłby geometrię, nie odporność |
+| Osobny strumień RNG perturbacji | Sparowane porównanie L2 → L3: te same sceny dla tego samego seeda |
+| `goal_switch` przy stałym progu 0.45 m od celu, nie przy obrysie stołu | Moment niezależny od trasy; koszt powrotu prawie ten sam |
+| Dłuższy limit kroków i budżet TRANSPORT tylko dla `goal_switch` | L1/L2/`displace` zostają porównywalne z wcześniejszymi runami |
+| Porażka `goal_switch` (limit `joint2` za podstawą) zostaje jako wynik | Prawdziwy tryb porażki polityki poza rozkładem; strefa zakazana lub ruch częściowy = zmiana środowiska po fakcie |
+| Trening na L3 od zera, nie dotrenowanie z L2 | Jeden przepis na wszystkie poziomy; symetria z DP (demo L3); SAC źle znosi zmianę rozkładu bufora |
+| L3 główny wynik zero-shot (trening L2 → test L3) | Bezpośrednia miara odporności; omija brak demo z przeplanowaniem w pierwszym etapie |
 
 ---
 
@@ -1036,6 +1188,8 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
 14. Florensa et al. (2017) - Reverse Curriculum Generation for Reinforcement Learning (CoRL 2017) - *podstawa startów z kostką w chwytaku*
 15. Ng, Harada, Russell (1999) - Policy Invariance Under Reward Transformations (ICML 1999) - *PBRS, odrzucone*
 16. Laskey et al. (2017) - DART: Noise Injection for Robust Imitation Learning (CoRL 2017) - *opcja na wąski zbiór L1 dla DP*
+17. Zhao et al. (2023) - Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware (ACT, RSS 2023) - *action chunking + temporal ensembling; do ablacji T_a na L3*
+18. Pinto et al. (2017) - Robust Adversarial Reinforcement Learning (ICML 2017) - *perturbacje siłami, odrzucone dla L3*
 
 ---
 

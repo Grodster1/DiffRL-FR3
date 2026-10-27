@@ -297,6 +297,10 @@ docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /
 
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl evaluate_sac data/runs/sac_L1_seed0_<data> --episodes 50"
 
+# L3 zero-shot: polityka L2 pod perturbacja; odpornosc czytaj z grupy "perturbed" w summary.json
+docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl evaluate_sac data/runs/sac_L2_seed0_<data>_wp --level L3 --perturbation displace --episodes 100"
+docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl evaluate_sac data/runs/sac_L2_seed0_<data>_wp --level L3 --perturbation goal_switch --episodes 100"
+
 # wyniki: data/runs/sac_<level>_seed<N>_<data>/ - monitor.csv, checkpoints/, tb/
 
 docker exec -it franka_sim bash -c "cd /ws && tensorboard --logdir data/runs --bind_all"
@@ -330,14 +334,18 @@ docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /
 # właściwe zbieranie: 100 UDANYCH demo, poddaje się po --max-attempts próbach
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl collect_demos --level L2 --seed 0 --episodes 100 --max-attempts 300 --save"
 
+# L3: --perturbation (displace | goal_switch) wymagane przy L3 i zabronione przy L1/L2
+docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl collect_demos --level L3 --perturbation displace --seed 0 --episodes 20 --max-attempts 40"
+docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash; cd /ws && ros2 run franka_rl collect_demos --level L3 --perturbation goal_switch --seed 0 --episodes 20 --max-attempts 40"
+
 # bez rebuildu, prosto ze źródeł
 docker exec -it franka_sim bash -c "source /opt/ros/jazzy/setup.bash; cd /ws && PYTHONPATH=/ws/src/franka_rl:\$PYTHONPATH python3 -m franka_rl.collect_demos --level L1 --episodes 1 --verbose"
 
-# wyniki: data/demos/demo_<level>_seed<N>_<data>/
+# wyniki: data/demos/demo_<level>[_<perturbation>]_seed<N>_<data>/
 #   ep_XXXX.npz (obs T+1, action T, reward T, goal_pos) + meta.json + episodes.jsonl + summary.json
 docker exec franka_sim bash -c "cd /ws && python3 -c \"
 import json; s=json.load(open('data/demos/<run>/summary.json'))
-print(s['success_rate'], s['expert_failure_rate'], s['failure_phases'])\""
+print(s['success_rate'], s['expert_failure_rate'], s['failure_phases'], s.get('perturbed_rate'), s.get('replan_rate'))\""
 ```
 
 > Gdy `success_rate` jest niskie, czytaj `failure_phases` z `summary.json` - mówi, w której

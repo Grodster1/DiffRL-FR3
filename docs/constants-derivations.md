@@ -432,6 +432,38 @@ gwarantuje, że polityka optymalna się nie zmienia.
 
 ---
 
+## 6c. Poziom L3 - perturbacja `displace` (`config.py`, `expert.py`, 10.2026)
+
+Decyzje (dlaczego teleport, dlaczego wyzwalanie odległością, protokół zero-shot) są w
+`thesis-project-context.md`, sekcja „Poziom L3". Tutaj tylko liczby.
+
+| Stała | Wartość | Status | Wyprowadzenie |
+|---|---|---|---|
+| `CUBE_START_XY_JITTER` | `(0.05, 0.15)` m | **[P]** | Dolna granica = bok kostki: nowa pozycja nie nachodzi na starą, więc zakłócenie jest zawsze widoczne dla polityki. Górna: przesunięcie rzędu odległości, jaką chwytak pokonuje w 5-15 krokach (1-3 cm/krok), czyli do przeplanowania, a nie nowe zadanie. Kandydat do ablacji (siła perturbacji vs skuteczność). |
+| `CUBE_START_JITTER_TRIGGER` | `(0.08, 0.12)` m (odległość EE-kostka w 3D) | **[P]** z komponentem **[W]** | Zawis eksperta (`HOVER_Z = 0.55`) jest `0.55 − 0.425 = 0.125` m nad środkiem kostki, więc pasmo wypada na początku DESCEND - tuż przed chwytem. Dolna granica 8 cm zostawia palce (otwarte) z dala od kostki w chwili teleportu. Szerokość 4 cm > maks. ruch na krok (~3 cm), więc monotonnie zbliżający się EE nie przeskoczy pasma. |
+| Próg uzbrojenia wyzwalacza | `> 0.12` m (górna granica pasma) | **[W]** | EE w `Q_READY` stoi w `(0.307, 0, 0.487)`; dla kostki w `(0.4, 0, 0.425)` odległość to `√(0.093² + 0.062²) ≈ 0.112` m - w paśmie już w kroku 0. Uzbrojenie dopiero po wyjściu EE poza pasmo usuwa perturbacje, które są w praktyce inną pozycją startową. |
+| `CUBE_START_XY_BOX` | `x ∈ [0.25, 0.60]`, `y ∈ [−0.25, 0.25]` | **[Z]** | Siatka IK co 5 cm (DLS, `R_frozen`, łańcuch z `Q_READY` jak w `_solve_ik_path`, 20.10.2026) na dwóch wysokościach. Chwyt (`z = 0.425`): zawodzi przy `x = 0.70` dla `|y| ≥ 0.25` i przy `x = 0.75` wszędzie. Zawis (`z = 0.55`): zawodzi przy `x = 0.60` dla `|y| ≥ 0.30`, przy `x = 0.65` dla `|y| ≥ 0.20`, przy `x = 0.70` wszędzie. Pudełko to największy prostokąt osiągalny na obu wysokościach z zapasem. Na stole z marginesem **[W]**: `x ∈ [0.25 − 0.025, 0.60 + 0.025] ⊂ [0.2, 0.8]`, `y ∈ [−0.275, 0.275] ⊂ [−0.4, 0.4]` (sprawdza to test). Rozdzielczość siatki 5 cm - granica przybliżona. |
+| `CUBE_START_EE_CLEARANCE` | `0.07` m (w XY) | **[W]** | Otwarty palec `0.04` m od osi EE (`GRIPPER_RANGE` / 2) + pół boku kostki `0.025` + zapas `0.005`. Poniżej tej odległości kostka po teleporcie mogłaby nachodzić na palce (przenikanie kolizji w DART). Większe od `GRASP_DIST_THRESH = 0.05`, więc nowa pozycja nigdy nie liczy się od razu jako „przy chwytaku". |
+| `CUBE_START_MAX_TRIES` | `1000` | **[Z]** | Najgorsza zmierzona akceptacja losowania z odrzucaniem: **4.6%** (kostka w rogu strefy L2, EE w paśmie wyzwalania po stronie środka stołu; 20 000 próbek na konfigurację, 5 pozycji kostki x 16 kierunków x 2 promienie). `P(porażka) = 0.954^N`: dla `N = 100` ≈ `9·10⁻³`, dla `N = 1000` ≈ `10⁻²⁰`. Koszt pomijalny (same losowania numpy). |
+| `PERTURB_RNG_STREAM` | `1` | **[P]** | Dowolna stała - drugi element `SeedSequence([seed, 1])`. Ważne tylko, że strumień jest różny od `np_random` (`[seed]`); `seed + 1` byłby po prostu innym seedem i mógłby pokryć się ze sceną z innego runu. |
+| `REPLAN_XY_TOL` (`expert.py`) | `0.03` m | **[P]** z komponentem **[W]** | APPROACH kończy się przy błędzie `< POS_TOL = 0.01` m, a DESCEND schodzi pionowo, więc w zwykłym chwycie błąd XY w DESCEND zostaje poniżej 1 cm. Próg 3x `POS_TOL` nie odpala przypadkiem, a dolna granica `CUBE_START_XY_JITTER` (5 cm) jest od niego wyraźnie większa, więc każde przesunięcie wywołuje przeplanowanie. **[Z]** skutek: 17/40 → 40/40 demo L3 na tych samych seedach, `replan_rate` 0.975. |
+
+**Horyzont epizodu - [Z].** Demo L3 `displace` (40 epizodów, seed 0): długość średnio 115,
+p90 126, max 142 kroki, więc `max_episode_steps = 200` wystarcza. Na L2 limit nie był
+aktywny (SAC `_wp`: max 124; ekspert: max 139).
+
+### `goal_switch`
+
+| Stała | Wartość | Status | Wyprowadzenie |
+|---|---|---|---|
+| `GOAL_SWITCH_XY_DIST` | `0.45` m (kostka-cel w XY) | **[W]** z komponentem **[P]** | Odległość start-cel w XY dla strefy L2 i celów `(0, ±0.525)`: minimum `√(0.4² + 0.325²) ≈ 0.515` (róg `(0.4, ±0.2)` po stronie celu), maksimum `√(0.6² + 0.725²) ≈ 0.94` - próg poniżej minimum, więc nigdy nie odpala na starcie. Na trasie z `(0.5, 0)` punkt 0.45 m od celu to `(0, 0.525) + 0.45 · (0.5, −0.525)/0.725 ≈ (0.31, 0.20)` - nad stołem głównym (`x ≥ 0.2`). Sama wartość w przedziale (0.24, 0.515) jest wyborem [P]. |
+| Uzbrojenie `goal_switch` | chwyt przy odległości `> 0.45` m | **[W]** | Start z curriculum (`_start_holding_cube`) ustawia kostkę w chwytaku nad stołem celu (jitter `CURRICULUM_XY_JITTER` = 0.075 m), czyli `< 0.45` m od celu już w kroku 0. |
+| `MAX_EPISODE_STEPS_GOAL_SWITCH` | `300` | **[P]**, pomiar **[Z]** | Ekspert (40 demo, seed 0): średnio 142, p90 162, max 171 kroków. 300 = zapas na polityki wolniejsze od eksperta; pozostałe poziomy zostają przy `MAX_EPISODE_STEPS = 200`. |
+| `SWITCH_TRANSPORT_BUDGET` (`expert.py`) | `120` kroków | **[Z]** / **[P]** | Budżet 75 nie wystarczył w 3/40 epizodach (każdy `length − perturb_step = 76`). 120 dał 40/40; wartość nie jest dociśnięta do minimum - to tylko limit czasu na porażkę, nie zmienia trajektorii. |
+| `GOAL_CHANGE_TOL` (`expert.py`) | `0.05` m | **[W]** | Cel w eksperckim kodzie liczony jako `cube + cube_to_goal` jest dokładny (ta sama obserwacja), więc w zwykłym epizodzie się nie zmienia; zamiana stołów to skok o `1.05` m. Każdy próg między zerem a tym skokiem działa, 5 cm zostawia zapas na szum numeryczny. |
+
+---
+
 ## 7. Pozostałe uwagi warte odnotowania w pracy
 
 - **Obserwacja jest „oracle", nie zmierzona.** Pozycja kostki idzie z `PosePublisher` Gazebo,
