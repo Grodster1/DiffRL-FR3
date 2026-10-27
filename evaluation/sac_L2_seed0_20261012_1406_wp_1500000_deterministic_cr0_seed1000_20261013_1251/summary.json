@@ -1,0 +1,61 @@
+{
+  "model": "data/runs/sac_L2_seed0_20261012_1406_wp/sac_final.zip",
+  "algo": "sac",
+  "num_timesteps": 1500000,
+  "mode": "deterministic",
+  "level": "L2",
+  "seed": 1000,
+  "curriculum_rate": 0.0,
+  "wall_time_s": 190.7949677999968,
+  "all": {
+    "episodes": 100,
+    "total_steps": 7221,
+    "success_rate": 0.98,
+    "success_ci95": [
+      0.9299868370580063,
+      0.9944981477650318
+    ],
+    "grasp_rate": 0.99,
+    "drop_rate": 0.0,
+    "release_attempt_rate": 0.98,
+    "return_mean": -33.265309468527114,
+    "return_std": 30.964728959169666,
+    "length_mean": 72.21,
+    "missed_final_xy_median": 0.4441342406853265,
+    "ik_failure_rate": 0.012602132668605456
+  },
+  "goal_left": {
+    "episodes": 51,
+    "total_steps": 3516,
+    "success_rate": 0.9803921568627451,
+    "success_ci95": [
+      0.8969519232441061,
+      0.9965303967465577
+    ],
+    "grasp_rate": 0.9803921568627451,
+    "drop_rate": 0.0,
+    "release_attempt_rate": 0.9803921568627451,
+    "return_mean": -35.527701906323195,
+    "return_std": 40.0307967769883,
+    "length_mean": 68.94117647058823,
+    "missed_final_xy_median": 0.8325131097914525,
+    "ik_failure_rate": 0.0
+  },
+  "goal_right": {
+    "episodes": 49,
+    "total_steps": 3705,
+    "success_rate": 0.9795918367346939,
+    "success_ci95": [
+      0.8930623153224584,
+      0.9963884204614692
+    ],
+    "grasp_rate": 1.0,
+    "drop_rate": 0.0,
+    "release_attempt_rate": 0.9795918367346939,
+    "return_mean": -30.910574482249555,
+    "return_std": 16.67395088537064,
+    "length_mean": 75.61224489795919,
+    "missed_final_xy_median": 0.05575537157920036,
+    "ik_failure_rate": 0.02456140350877193
+  }
+}

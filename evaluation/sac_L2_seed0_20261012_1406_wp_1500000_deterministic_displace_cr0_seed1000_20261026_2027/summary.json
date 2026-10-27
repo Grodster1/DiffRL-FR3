@@ -1,0 +1,79 @@
+{
+  "model": "data/runs/sac_L2_seed0_20261012_1406_wp/latest.zip",
+  "algo": "sac",
+  "num_timesteps": 1500000,
+  "mode": "deterministic",
+  "level": "L3",
+  "perturbation": "displace",
+  "seed": 1000,
+  "curriculum_rate": 0.0,
+  "wall_time_s": 186.867106787,
+  "all": {
+    "episodes": 100,
+    "total_steps": 7855,
+    "success_rate": 0.96,
+    "success_ci95": [
+      0.9016278276739262,
+      0.984336949448152
+    ],
+    "grasp_rate": 0.97,
+    "drop_rate": 0.0,
+    "release_attempt_rate": 0.94,
+    "return_mean": -46.136372228003346,
+    "return_std": 57.56450321833299,
+    "length_mean": 78.55,
+    "missed_final_xy_median": 0.7669187818295831,
+    "ik_failure_rate": 0.0
+  },
+  "perturbed": {
+    "episodes": 100,
+    "total_steps": 7855,
+    "success_rate": 0.96,
+    "success_ci95": [
+      0.9016278276739262,
+      0.984336949448152
+    ],
+    "grasp_rate": 0.97,
+    "drop_rate": 0.0,
+    "release_attempt_rate": 0.94,
+    "return_mean": -46.136372228003346,
+    "return_std": 57.56450321833299,
+    "length_mean": 78.55,
+    "missed_final_xy_median": 0.7669187818295831,
+    "ik_failure_rate": 0.0
+  },
+  "goal_left": {
+    "episodes": 51,
+    "total_steps": 3624,
+    "success_rate": 1.0,
+    "success_ci95": [
+      0.9299509861127319,
+      0.9999999999999999
+    ],
+    "grasp_rate": 1.0,
+    "drop_rate": 0.0,
+    "release_attempt_rate": 0.9803921568627451,
+    "return_mean": -37.20306962071464,
+    "return_std": 25.725473254101665,
+    "length_mean": 71.05882352941177,
+    "missed_final_xy_median": NaN,
+    "ik_failure_rate": 0.0
+  },
+  "goal_right": {
+    "episodes": 49,
+    "total_steps": 4231,
+    "success_rate": 0.9183673469387755,
+    "success_ci95": [
+      0.8081061295851387,
+      0.9677977037582878
+    ],
+    "grasp_rate": 0.9387755102040817,
+    "drop_rate": 0.0,
+    "release_attempt_rate": 0.8979591836734694,
+    "return_mean": -55.434299431507924,
+    "return_std": 76.83925504303754,
+    "length_mean": 86.34693877551021,
+    "missed_final_xy_median": 0.7669187818295831,
+    "ik_failure_rate": 0.0
+  }
+}

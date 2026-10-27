@@ -1,0 +1,96 @@
+{
+  "model": "data/runs/sac_L2_seed0_20261012_1406_wp/latest.zip",
+  "algo": "sac",
+  "num_timesteps": 1500000,
+  "mode": "deterministic",
+  "level": "L3",
+  "perturbation": "goal_switch",
+  "seed": 1000,
+  "curriculum_rate": 0.0,
+  "wall_time_s": 388.0882030800003,
+  "all": {
+    "episodes": 100,
+    "total_steps": 18563,
+    "success_rate": 0.58,
+    "success_ci95": [
+      0.4820630799889527,
+      0.672017750814887
+    ],
+    "grasp_rate": 0.98,
+    "drop_rate": 0.01,
+    "release_attempt_rate": 0.53,
+    "return_mean": -120.65308147377748,
+    "return_std": 144.05455843753307,
+    "length_mean": 185.63,
+    "missed_final_xy_median": 0.44494591620259494,
+    "ik_failure_rate": 0.47104455098852555
+  },
+  "perturbed": {
+    "episodes": 94,
+    "total_steps": 17560,
+    "success_rate": 0.574468085106383,
+    "success_ci95": [
+      0.4735305411590489,
+      0.6695578793083188
+    ],
+    "grasp_rate": 1.0,
+    "drop_rate": 0.0,
+    "release_attempt_rate": 0.5212765957446809,
+    "return_mean": -105.27321666066688,
+    "return_std": 60.45462261208472,
+    "length_mean": 186.80851063829786,
+    "missed_final_xy_median": 0.4442866585941526,
+    "ik_failure_rate": 0.4979498861047836
+  },
+  "unperturbed": {
+    "episodes": 6,
+    "total_steps": 1003,
+    "success_rate": 0.6666666666666666,
+    "success_ci95": [
+      0.29998832134152864,
+      0.9032306674407831
+    ],
+    "grasp_rate": 0.6666666666666666,
+    "drop_rate": 0.16666666666666666,
+    "release_attempt_rate": 0.6666666666666666,
+    "return_mean": -361.6042968791767,
+    "return_std": 476.2779821295455,
+    "length_mean": 167.16666666666666,
+    "missed_final_xy_median": 0.862811093111507,
+    "ik_failure_rate": 0.0
+  },
+  "goal_left": {
+    "episodes": 53,
+    "total_steps": 13431,
+    "success_rate": 0.22641509433962265,
+    "success_ci95": [
+      0.13454499977265527,
+      0.35526528002242436
+    ],
+    "grasp_rate": 0.9811320754716981,
+    "drop_rate": 0.0,
+    "release_attempt_rate": 0.22641509433962265,
+    "return_mean": -150.4815810049093,
+    "return_std": 68.44933628892171,
+    "length_mean": 253.41509433962264,
+    "missed_final_xy_median": 0.44494591620259494,
+    "ik_failure_rate": 0.6510311964857419
+  },
+  "goal_right": {
+    "episodes": 47,
+    "total_steps": 5132,
+    "success_rate": 0.9787234042553191,
+    "success_ci95": [
+      0.8888676347566887,
+      0.9962343289895351
+    ],
+    "grasp_rate": 0.9787234042553191,
+    "drop_rate": 0.02127659574468085,
+    "release_attempt_rate": 0.8723404255319149,
+    "return_mean": -87.01668838547995,
+    "return_std": 191.66225559240215,
+    "length_mean": 109.19148936170212,
+    "missed_final_xy_median": NaN,
+    "ik_failure_rate": 0.0
+  }
+}
