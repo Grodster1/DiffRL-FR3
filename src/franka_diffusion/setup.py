@@ -17,4 +17,10 @@ setup(
     maintainer_email = "wiktorwszedybyl1@gmail.com",
     description = 'Diffusion Policy (U-Net 1D + FiLM, DDPM/DDIM)',
     license = 'MIT',
+    entry_points = {
+        'console_scripts': [
+            'train_dp = franka_diffusion.train:train_dp',
+            'eval_dp = franka_diffusion.eval:evaluate_dp',
+        ],
+    },
 )
