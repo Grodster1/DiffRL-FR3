@@ -88,6 +88,26 @@ def test_closed_gripper_never_counts_as_a_release_attempt():
     assert record["release_attempts"] == 0
 
 
+def test_stateful_policy_is_reset_before_every_episode():
+    class Stateful:
+        def __init__(self):
+            self.resets, self.calls_since_reset = 0, []
+
+        def reset(self):
+            self.resets += 1
+            self.calls_since_reset.append(0)
+
+        def __call__(self, obs):
+            self.calls_since_reset[-1] += 1
+            return np.array([0.0, 0.0, 0.0, -1.0])
+
+    act, env = Stateful(), FakeEnv(n=3)
+    run_episode(env, act)
+    run_episode(env, act)
+    assert act.resets == 2
+    assert act.calls_since_reset == [3, 3]
+
+
 def _record(success=False, dropped=False, xy=0.06, release_attempts=0):
     return {"return": -10.0, "length": 200, "is_success": success, "is_grasped": True,
             "dropped": dropped, "release_attempts": release_attempts,

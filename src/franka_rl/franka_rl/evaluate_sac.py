@@ -92,8 +92,12 @@ def wilson_interval(successes, n, z=1.96):
 
 def run_episode(env: FrankaPickPlaceEnv, act):
     """ Rolls out one episode with `act(obs) -> action`.
+        A stateful `act` (e.g. Diffusion Policy with its observation history and action
+        queue) may define reset(), called at the start of every episode.
         Returns the episode record built from the terminal info dict. """
     obs, info = env.reset()
+    if hasattr(act, "reset"):
+        act.reset()
     total_reward = 0.0
     steps = 0
     release_attempts = 0
