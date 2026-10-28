@@ -1,0 +1,37 @@
+{
+  "checkpoint": "data/runs/dp_L1_seed0_20261028_1129/latest.pt",
+  "algo": "dp",
+  "epoch": 2000,
+  "step": 70000,
+  "trained_on": "L1",
+  "level": "L1",
+  "perturbation": null,
+  "seed": 1000,
+  "device": "cuda",
+  "num_inference_steps": 10,
+  "wall_time_s": 158.68743288399855,
+  "inference_latency": {
+    "queries": 714,
+    "mean_ms": 62.32320331656622,
+    "p95_ms": 69.93997369900171,
+    "max_ms": 364.2769739999494,
+    "per_env_step_ms": 7.790400414570778
+  },
+  "all": {
+    "episodes": 50,
+    "total_steps": 5633,
+    "success_rate": 0.98,
+    "success_ci95": [
+      0.8950431352816304,
+      0.9964608319110235
+    ],
+    "grasp_rate": 0.98,
+    "drop_rate": 0.0,
+    "release_attempt_rate": 0.04,
+    "return_mean": -61.95373302042813,
+    "return_std": 40.73677944270244,
+    "length_mean": 112.66,
+    "missed_final_xy_median": 0.725,
+    "ik_failure_rate": 0.0062133854074205574
+  }
+}
