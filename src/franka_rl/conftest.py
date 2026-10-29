@@ -1,15 +1,17 @@
+import sys
 import time
+from pathlib import Path
+
 import pytest
+
+# franka_task is a sibling source package: tests import it from src/, not from the
+# install/ copy, so they keep running without a colcon build (same as this package)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "franka_task"))
 
 SKIP_REASON = "no /clock messages - start bringup.launch.py"
 
 def _sim_is_running(timeout=3.0):
-    """Waits for an actual /clock message, not just a publisher.
-
-    count_publishers() is not enough: the ros_gz_bridge processes outlive `gz sim`,
-    so a dead simulation still leaves a publisher on /clock and every sim test would
-    run against a clock that never ticks - hanging in reserve_t() instead of skipping.
-    """
+    """Waits for an actual /clock message, not just a publisher."""
     import rclpy
     from rosgraph_msgs.msg import Clock
 

@@ -3,20 +3,13 @@
 <package format="3">
   <name>franka_rl</name>
   <version>0.0.1</version>
-  <description>Środowisko Gymnasium dla FR3 (Pick and Place) + DLS-IK; wspólna warstwa dla SAC/PPO, Diffusion Policy i skryptowanego eksperta (praca inż.)</description>
+  <description>SAC i PPO (stable-baselines3) na zadaniu Pick and Place z franka_task: trening, ewaluacja, baseline losowej polityki (praca inż.)</description>
   <maintainer email="wiktorwszedybyl1@gmail.com">Wiktor</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
 
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>trajectory_msgs</exec_depend>
-  <exec_depend>tf2_msgs</exec_depend>
-  <exec_depend>ros_gz_interfaces</exec_depend>
-  <exec_depend>pinocchio</exec_depend>
-  <exec_depend>xacro</exec_depend>
-  <exec_depend>franka_sim</exec_depend>
+  <exec_depend>franka_task</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

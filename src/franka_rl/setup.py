@@ -15,15 +15,14 @@ setup(
     zip_safe = True,
     maintainer = 'Wiktor',
     maintainer_email = "wiktorwszedybyl1@gmail.com",
-    description = 'Środowisko Gymnasium dla FR3 (Pick and Place) + DLS-IK',
+    description = 'SAC i PPO (stable-baselines3) na zadaniu z franka_task',
     license = 'MIT',
     entry_points = {
         'console_scripts' : [
             'train_sac = franka_rl.train_sac:train_sac',
             'train_ppo = franka_rl.train_ppo:train_ppo',
             'random_baseline = franka_rl.random_baseline:random_baseline',
-            'collect_demos = franka_rl.collect_demos:collect_demos',
-            'evaluate_sac = franka_rl.evaluate_sac:evaluate_sac'
+            'evaluate_rl = franka_rl.evaluate_rl:evaluate_rl'
         ],
     },
 )

@@ -7,8 +7,8 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
-import franka_rl.config as cfg
-from franka_rl.gym_env import FrankaPickPlaceEnv, level_tag
+import franka_task.config as cfg
+from franka_task.gym_env import FrankaPickPlaceEnv, level_tag
 from franka_rl.run_config import write_run_config
 from franka_rl.train_sac import (WAYPOINT_SUFFIX, check_resume_reward, make_env,
                                  monitor_path, remaining_timesteps, saved_timesteps)
@@ -48,9 +48,7 @@ class PPOResumePointCallback(BaseCallback):
 
 
 def resolve_resume(resume):
-    """ Accepts a run directory or an explicit .zip, returns (model, vecnormalize, run_dir).
-        Statistics are optional - a run interrupted before the first save point still
-        resumes, the reward scale is then re-estimated. """
+    """ Accepts a run directory or an explicit .zip, returns (model, vecnormalize, run_dir). """
     path = Path(resume)
 
     if path.is_dir():

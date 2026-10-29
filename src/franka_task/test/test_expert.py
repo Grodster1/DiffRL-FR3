@@ -1,9 +1,9 @@
-"""Tests for `expert.py` - pure, no rclpy, no Gazebo. Observations are built by hand."""
+"""Tests for `expert.py`- no Gazebo. Observations are built by hand."""
 
 import numpy as np
 
-import franka_rl.config as cfg
-from franka_rl.expert import (HOVER_Z, PHASE_BUDGET, PLACE, REPLAN_XY_TOL, SWITCH_TRANSPORT_BUDGET,
+import franka_task.config as cfg
+from franka_task.expert import (HOVER_Z, PHASE_BUDGET, PLACE, REPLAN_XY_TOL, SWITCH_TRANSPORT_BUDGET,
                               TRANSPORT, ScriptedExpert)
 
 CUBE = cfg.CUBE_POS_DEFAULT

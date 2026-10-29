@@ -1,5 +1,5 @@
 import numpy as np
-import franka_rl.config as cfg
+import franka_task.config as cfg
 
 def sample_displaced_cube(rng, cube_pos, ee_pos, box, jitter, ee_clearance, max_tries):
     for _ in range(max_tries):

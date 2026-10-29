@@ -1,13 +1,7 @@
-""" Scripted pick & place expert for FrankaPickPlaceEnv.
-
-    Reference implementation with two jobs: prove the task is reachable through `env.step()`, 
-    and record demonstrations for Diffusion Policy. It therefore emits actions in the same 
-    as SAC and DP - (dx, dy, dz, g) in [-1, 1], routed through the same `step()`.
-    Hence every demonstration is something a policy could actually reproduce.
-"""
+""" Scripted pick & place expert for FrankaPickPlaceEnv."""
 
 import numpy as np
-import franka_rl.config as cfg
+import franka_task.config as cfg
 
 
 HOVER_Z = 0.55

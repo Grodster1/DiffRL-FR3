@@ -1,5 +1,5 @@
 import numpy as np
-from franka_rl.config import WORKSPACE_BOX, GRIPPER_RANGE, REL_SCALE
+from franka_task.config import WORKSPACE_BOX, GRIPPER_RANGE, REL_SCALE
 
 def build_obs_dict(q_arm, gripper_opening, cube_pos, goal_pos, kin):
     """ Raw observation in SI units - using to compute reward """

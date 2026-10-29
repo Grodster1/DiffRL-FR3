@@ -6,7 +6,7 @@ i budowa komend JTC: callbacki wolamy wprost z recznie zlozonych wiadomosci, a
 publikacje przechwytujemy podmieniajac `publish`, wiec nic nie spina i nic nie czeka.
 
 Poprzednia wersja tego pliku byla skryptem wykonywanym przy imporcie (`rclpy.init()`
-+ `reserve_t()` na poziomie modulu), przez co `pytest src/franka_rl/test` bez Gazebo
++ `reserve_t()` na poziomie modulu), przez co `pytest src/franka_task/test` bez Gazebo
 wisial i padal juz na KOLEKCJI - zanim cokolwiek zdazylo sie uruchomic.
 """
 
@@ -19,8 +19,8 @@ from nav_msgs.msg import Odometry
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import JointState
 
-import franka_rl.config as cfg
-from franka_rl.ros_bridge import SimInterface
+import franka_task.config as cfg
+from franka_task.ros_bridge import SimInterface
 
 
 @pytest.fixture(scope="module")

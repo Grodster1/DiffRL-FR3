@@ -1,10 +1,5 @@
 """Random-policy baseline for FrankaPickPlaceEnv.
-
-Answers one question: can the grasp condition fire at all under random actions? 
-If `grasp_rate` is 0 over a few hundred episodes, the replay buffer will never 
-contain a grasp transition and no amount of timesteps will fix that. 
-In that case the task needs a curriculum or denser shaping instead.
-"""
+Answers one question: can the grasp condition fire at all under random actions? """
 
 import argparse
 import json
@@ -14,8 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
-import franka_rl.config as cfg
-from franka_rl.gym_env import FrankaPickPlaceEnv, level_tag
+import franka_task.config as cfg
+from franka_task.gym_env import FrankaPickPlaceEnv, level_tag
 
 
 def parse_args():

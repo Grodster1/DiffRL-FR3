@@ -53,7 +53,7 @@ def select_files(run_dir, with_checkpoints, logs, with_evaluation):
         files.append((log.resolve(), f"{in_repo_run}/logs/{log.name}"))
 
     if with_evaluation and EVALUATION_DIR.is_dir():
-        # evaluate_sac names them <run>_<timesteps>_<mode>_...; the digits keep <run>_wp out
+        # evaluate_rl names them <run>_<timesteps>_<mode>_...; the digits keep <run>_wp out
         own = re.compile(rf"{re.escape(run_dir.name)}_\d+_")
         for eval_dir in sorted(d for d in EVALUATION_DIR.iterdir() if own.match(d.name)):
             for path in sorted(eval_dir.rglob("*")):

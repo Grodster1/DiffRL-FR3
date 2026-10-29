@@ -48,7 +48,7 @@ Metryki porównawcze: skuteczność zadania (success rate), efektywność próbk
 | 1-2 | Przegląd literatury + konfiguracja środowiska - **zamknięte** |
 | 3-4 | Implementacja środowiska symulacyjnego (scena P&P, węzły ROS 2, 3 poziomy trudności) - **zamknięte** (otwarta tylko faza 2 krokowania, `multi_step`) |
 | 5-6 | Implementacja i trening SAC oraz PPO ← **in progress** - SAC **L1 zamknięty** (04.10.2026, ewaluacja deterministyczna 50/50); SAC **L2 98/100** (13.10.2026, wariant `_wp`); `train_ppo.py` napisany (12.10.2026), nietrenowany |
-| 7-8 | Zbiór demonstracji + trening Diffusion Policy - zbiory z 07/09.09 **nieaktualne** (zebrane przed `limit_joint_step`), do zebrania od nowa na L1 i L2; pakiet `franka_diffusion` założony (08.10.2026) |
+| 7-8 | Zbiór demonstracji + trening Diffusion Policy - zbiory z 07/09.09 **nieaktualne**; nowe L1 i L2 z 08.10.2026; DP **L1 49/50** (28.10.2026, epoka 2000, deterministyczny seed scen 1000 jak SAC, 95% CI 0.895-0.996, latencja 62 ms/zapytanie ≈ 7.8 ms/krok); L2 do treningu |
 | 9-10 | Eksperymenty porównawcze + pisanie pracy |
 
 ---
@@ -262,7 +262,7 @@ Polityka (ΔEE @ 10-20 Hz)
 
 - **`run_config.json` w katalogu runu** - `train_sac` i `train_ppo` dopisują przy każdym starcie
   (także `--resume`) wpis z flagami, `argv`, licznikiem kroków na starcie, hostem, wersjami
-  bibliotek i **hashami plików `franka_rl`**. Wcześniej wariant nagrody było widać tylko po nazwie
+  bibliotek i **hashami plików `franka_rl` i `franka_task`** (od 29.10.2026 - środowisko i nagroda siedzą w `franka_task`; klucze to gołe nazwy plików, więc nowe wpisy porównują się ze starymi). Wcześniej wariant nagrody było widać tylko po nazwie
   runu, a wersji kodu nie dało się odtworzyć wcale. Wznowienie dopisuje kolejny wpis zamiast
   nadpisywać, bo run przerwany i wznowiony na innym kodzie to w praktyce dwa różne eksperymenty.
 - **Hashe blobów zamiast hasha commita** - kontener nie widzi `.git` (montowane są tylko `src`,
@@ -372,7 +372,7 @@ Polityka (ΔEE @ 10-20 Hz)
     free-run) i ramię trzyma ostatnią komendę. Raz na rollout daje to jeden długi krok, widoczny w
     `sim_dt_max`. Jeśli okaże się szkodliwy: pauza świata na czas aktualizacji (callback
     `_on_rollout_end` + serwis `/world/fr3_world/control`, którego jeszcze nie mostkujemy).
-  - Ewaluacja: `evaluate_sac` rozpoznaje algorytm po nazwie runu (`--algo` nadpisuje).
+  - Ewaluacja: `evaluate_rl` rozpoznaje algorytm po nazwie runu (`--algo` nadpisuje).
 - ~~Curriculum: trening L2 startujący z wag L1~~ - **zmienione (10.2026):** L2 trenowane
   **od zera tym samym przepisem co L1** (ta sama nagroda, `--curriculum-rate 0.2`, checkpointy co
   20k), żeby w pracy stało „jedna metoda rozwiązuje oba poziomy". Polityka L1 to w praktyce jedna
@@ -403,7 +403,7 @@ Polityka (ΔEE @ 10-20 Hz)
   `20261004_1256` pozostał odtwarzalny. Runy z wariantem mają w nazwie sufiks `_wp`, a `--resume`
   odmawia startu bez tej samej flagi. **Konsekwencja dla pracy:** jeśli L2 z wariantem zadziała,
   „jeden przepis na oba poziomy" wymaga powtórzenia L1 z tą flagą albo jawnego opisu różnicy.
-  Strona celu (`goal_side`) jest od teraz w `info`, `monitor.csv` i `evaluate_sac` (osobne
+  Strona celu (`goal_side`) jest od teraz w `info`, `monitor.csv` i `evaluate_rl` (osobne
   podsumowania `goal_left` / `goal_right` poza L1).
 - **SAC L2 z wariantem rozwiązany (`sac_L2_seed0_20261012_1406_wp`, 13.10.2026).** Od zera,
   `--curriculum-rate 0.2 --transport-waypoint`, 1.5M kroków (dwa wznowienia, bez awarii `joint2`).
@@ -456,10 +456,11 @@ Polityka (ΔEE @ 10-20 Hz)
   (Laskey i in. 2017). Na zapas nie dodawane.
 - **Pakiet `franka_diffusion` (08.10.2026):** osobny pakiet `ament_python`, nie podkatalog
   `franka_rl`. Trening (dataset, model, DDPM) bez ROS - czyta tylko `data/demos/`. Jedynie
-  `eval.py` importuje `franka_rl.gym_env` (rollout), więc zależność idzie w jedną stronę:
-  `franka_diffusion → franka_rl` (`exec_depend`). `torch`/`diffusers` celowo poza `package.xml`
-  (PyPI w Dockerfile, `rosdep` szukałby w apt). Ewaluacja DP używa `run_episode(env, act)`
-  i `summarize()` z `evaluate_sac.py` - ta sama procedura dla obu metod.
+  `eval.py` importuje środowisko (rollout), więc zależność idzie w jedną stronę - od 29.10.2026
+  `franka_diffusion → franka_task` (`exec_depend`), wcześniej `→ franka_rl`. `torch`/`diffusers`
+  celowo poza `package.xml` (PyPI w Dockerfile, `rosdep` szukałby w apt). Ewaluacja DP używa
+  `run_episode(env, act)` i `summarize()` z `franka_task/evaluation.py` - ta sama procedura
+  co dla SAC/PPO.
 - **DP jest state-based - FiLM nie wiąże się z kamerą.** FiLM to warunkowanie dowolnym wektorem
   (`h' = γ(c)·h + β(c)` per kanał). U Chi i in. U-Net 1D odszumia sekwencję akcji, a obserwacja
   (+ embedding kroku dyfuzji) warunkuje każdy blok przez FiLM; wariant wizyjny różni się tylko
@@ -619,11 +620,11 @@ Polityka (ΔEE @ 10-20 Hz)
 ### Ewaluacja i eksperymenty - ustalenia
 
 - Protokół: ≥50 epizodów testowych x ≥3 seedy treningowe, średnia ± odchylenie, identyczne ziarna randomizacji sceny dla wszystkich metod.
-- **Raportujemy WYŁĄCZNIE ewaluację deterministyczną (`evaluate_sac`, 09.2026).** `monitor.csv`
+- **Raportujemy WYŁĄCZNIE ewaluację deterministyczną (`evaluate_rl`, 09.2026).** `monitor.csv`
   liczy epizody z **próbkowanymi** akcjami SAC przy zmieniających się wagach, więc miesza
   politykę z szumem eksploracji. Zmierzone: `_curriculum_v2` miał w monitorze do 17.5% sukcesów
   pełnego zadania, a deterministycznie i stochastycznie na końcowych wagach **0/50**. Monitor
-  służy do diagnostyki. `evaluate_sac`: domyślnie deterministycznie, `curriculum_rate = 0`,
+  służy do diagnostyki. `evaluate_rl`: domyślnie deterministycznie, `curriculum_rate = 0`,
   seed 1000 (z dala od treningowych), przedział Wilsona 95%, licznik `release_attempts`
   (otwarcie chwytaka przy trzymanej kostce - odróżnia „nie próbuje" od „próbuje i chybia").
   Działa tylko przy zatrzymanym treningu (jedno Gazebo).
@@ -705,9 +706,7 @@ DiffRL-Panda/
 │   │   ├── worlds/fr3_world.sdf      # ground plane + stół + kostka
 │   │   └── config/controllers.yaml
 │   │
-│   ├── (franka_task/ - NIE założony: reward, randomizacja sceny i poziomy siedzą w franka_rl)
-│   │
-│   ├── franka_rl/                    # Pakiet ament_python: środowisko Gym + SAC, PPO
+│   ├── franka_task/                  # Pakiet ament_python: zadanie wspólne dla WSZYSTKICH metod (29.10.2026)
 │   │   ├── config.py                # stałe (progi, wagi reward, geometria) - ZERO ROS
 │   │   ├── kinematics.py            # FK + jakobian (pinocchio), ZERO ROS
 │   │   ├── inverse_kinematics.py    # DLS + clip workspace/limity, ZERO ROS
@@ -716,18 +715,24 @@ DiffRL-Panda/
 │   │   ├── expert.py                # skryptowany ekspert (automat 8 faz), ZERO ROS
 │   │   ├── ros_bridge.py            # jedyne miejsce z rclpy; reserve_t(dt)
 │   │   ├── gym_env.py               # Wrapper Gymnasium ↔ ROS 2
-│   │   ├── test/                    # pytest - uruchamialny bez Gazebo
-│   │   ├── random_baseline.py       # baseline losowej polityki (diagnostyka środowiska)
+│   │   ├── perturbations.py         # sampler perturbacji L3, ZERO ROS
 │   │   ├── collect_demos.py         # pętla wykonawcza eksperta: diagnostyka + zapis demo
+│   │   ├── evaluation.py            # run_episode / summarize / Wilson - protokół ewaluacji wszystkich metod
+│   │   └── test/                    # pytest - uruchamialny bez Gazebo
+│   │
+│   ├── franka_rl/                    # Pakiet ament_python: SAC, PPO (stable-baselines3)
 │   │   ├── train_sac.py             # --resume, --curriculum-rate, --checkpoint-freq
-│   │   ├── evaluate_sac.py          # ewaluacja deterministyczna → evaluation/
-│   │   └── train_ppo.py              # PPO, ten sam env/nagroda/curriculum co SAC
+│   │   ├── train_ppo.py             # PPO, ten sam env/nagroda/curriculum co SAC
+│   │   ├── evaluate_rl.py           # wczytanie modelu SB3 (SAC/PPO) + protokół z franka_task → evaluation/
+│   │   ├── random_baseline.py       # baseline losowej polityki (diagnostyka środowiska)
+│   │   └── run_config.py            # run_config.json: flagi, wersje, hashe kodu
 │   │
 │   └── franka_diffusion/             # Pakiet ament_python: Diffusion Policy (założony 08.10.2026)
 │       ├── dataset.py               # czyta gotowe pliki demo z data/demos/ - ZERO ROS
 │       ├── model.py                 # U-Net 1D + FiLM - ZERO ROS
-│       ├── train.py                 # DDPM - ZERO ROS
-│       └── eval.py                  # jedyny plik importujący franka_rl.gym_env
+│       ├── policy.py                # DDPM (trening) / DDIM (inferencja) - ZERO ROS
+│       ├── train.py                 # pętla treningowa, EMA, checkpointy - ZERO ROS
+│       └── eval.py                  # jedyny plik importujący franka_task (rollout)
 │
 ├── evaluation/                       # Automatyczny protokół ewaluacji
 ├── data/                             # Demonstracje, checkpointy, wyniki (gitignored)
@@ -736,9 +741,26 @@ DiffRL-Panda/
 
 Podział na pakiety ROS 2:
 - `franka_sim` → `ament_cmake` (launch files, konfiguracja Gazebo, URDF)
-- `franka_rl`, `franka_diffusion` → `ament_python` (`franka_task` z pierwotnego szkicu nie powstał)
+- `franka_task`, `franka_rl`, `franka_diffusion` → `ament_python`; zależności:
+  `franka_rl → franka_task ← franka_diffusion`, `franka_task → franka_sim`
 
-**Zbieranie demonstracji należy do `franka_rl`, nie do `franka_diffusion` (sprostowanie 09.2026).**
+**Wydzielenie `franka_task` z `franka_rl` (29.10.2026).** Do tej pory środowisko, IK, obserwacje,
+perturbacje, ekspert, zbieranie demo i protokół ewaluacji siedziały w `franka_rl`, a
+`franka_diffusion` importował je stamtąd. Działało, ale kierunek zależności mówił „DP jest
+dobudówką do RL", a zasada uczciwości porównania mówi coś odwrotnego: jedno zadanie, jeden tor
+sterowania i jeden protokół ewaluacji, na których stoją dwie **równorzędne** metody. Po podziale
+struktura pakietów wyraża tę zasadę wprost (do diagramu architektury w pracy). Pierwotny szkic
+zakładał `franka_task` od początku; nie powstał, bo przez pierwsze tygodnie istniała tylko jedna
+metoda. Przeniesienie bez zmian zachowania: przeniesione pliki różnią się od wersji sprzed
+podziału wyłącznie importami (sprawdzone parami względem HEAD), zestaw 172 testów identyczny,
+wytrenowane modele SAC L1/L2 i PPO (z `VecNormalize`) oraz checkpoint DP ładują się bez zmian -
+zipy SB3 nie przechowują ścieżek do modułów projektu. Przy okazji `evaluate_sac` → `evaluate_rl` (obsługuje SAC i PPO; symetrycznie do `eval_dp`) - starsze notatki i nazwy katalogów w `evaluation/` się nie zmieniają. Dwie pułapki przy takiej przeprowadzce:
+(1) stara kopia w `install/franka_rl` trzymała wszystkie przeniesione moduły i maskowałaby
+zapomniany `import franka_rl.gym_env` - trzeba skasować `build/` i `install/` pakietu przed
+rebuildem; (2) `run_config.source_hashes()` hashował tylko katalog `franka_rl`, więc bez
+rozszerzenia na `franka_task` zapis runu zgubiłby hashe środowiska i nagrody.
+
+**Zbieranie demonstracji należy do `franka_task` (do 29.10.2026 `franka_rl`), nie do `franka_diffusion` (sprostowanie 09.2026).**
 Wcześniejszy szkic struktury umieszczał `data_collector.py` w `franka_diffusion`. To jest złe
 miejsce: kolektor musi importować `gym_env`, czyli ciągnie `rclpy`, `xacro` i całą warstwę ROS.
 `franka_diffusion` ma **czytać gotowe pliki** z `data/demos/`, a nie sterować robotem - inaczej
@@ -747,7 +769,7 @@ trening DP nie da się uruchomić bez stojącego Gazebo. Ta sama granica, która
 
 Z tego samego powodu ekspert jest rozbity na dwa pliki: `expert.py` (czysty numpy, testowalny
 bez Gazebo) i `collect_demos.py` (pętla wykonawcza, importuje `gym_env`). Gdyby siedziały razem,
-`import franka_rl.expert` w teście jednostkowym zaciągnąłby cały stos ROS i testy eksperta
+`import franka_task.expert` w teście jednostkowym zaciągnąłby cały stos ROS i testy eksperta
 przestałyby chodzić poza kontenerem z żywą symulacją.
 
 ---
@@ -770,7 +792,7 @@ przestałyby chodzić poza kontenerem z żywą symulacją.
 - Robot spawnuje się w pozie **ready**, trzy kontrolery `active`
 - Chwyt i podniesienie kostki zweryfikowane ręcznie (`rqt_joint_trajectory_controller`)
 
-### Pętla deweloperska `franka_rl` (pakiet `ament_python`)
+### Pętla deweloperska pakietów `ament_python` (`franka_task`, `franka_rl`, `franka_diffusion`)
 - **`--symlink-install` NIE działa dla `ament_python`** (sprawdzone na `franka_rl`: zero
   symlinków w `install/`, edycja w `src/` niewidoczna bez rebuildu). Colcon degraduje się po
   cichu do zwykłej kopii - skutek zmiany trybu editable install w setuptools ≥ 64, bez
@@ -781,6 +803,10 @@ przestałyby chodzić poza kontenerem z żywą symulacją.
   `/ws/install/`. Dzięki temu testy jednostkowe (`kinematics.py`, `ik.py` - zero ROS) lecą bez
   `colcon build` i bez Gazebo. **Nie kasować.** `colcon build` jest potrzebny dopiero, gdy
   moduł ma działać jako zainstalowany pakiet (`ros2 run`, launch, skrypty treningowe).
+  Od podziału (29.10.2026) każdy z trzech pakietów ma własny `conftest.py`; ten w `franka_rl`
+  i `franka_diffusion` dodatkowo wstawia na `sys.path` źródła `franka_task`, bo prepend dotyczy
+  tylko katalogu z conftestem - bez tego testy brałyby `franka_task` z `install/` (stara wersja
+  albo brak pakietu). Detekcja symulacji (marker `sim`) jest w conftestach `franka_task` i `franka_rl`.
 
   Plik był początkowo pusty (efekt dawała sama jego obecność); od 09.2026 ma **drugie,
   niezależne zadanie** - autodetekcję żywej symulacji. To zmienia zasadę „nie kasować"
@@ -1112,7 +1138,7 @@ prawej stronie robota (90° w Z względem stołu głównego), robot jest w środ
    `sac_L1_seed0_20260921_1331` (900k, 0/50).
     Trening SAC L2 - **DONE (13.10.2026)**: `sac_L2_seed0_20261012_1406_wp`, 1.5M kroków,
     deterministycznie 98/100 (lewy 50/51, prawy 48/49).
-10. Ewaluacja deterministyczna `evaluate_sac` - **DONE (29.09.2026)**.
+10. Ewaluacja deterministyczna `evaluate_rl` - **DONE (29.09.2026)**.
 11. **TODO (kolejność):** zebranie demo L1 (nowe budżety eksperta) → SAC L1 z
     `--transport-waypoint` (jeden przepis na oba poziomy) → zebranie demo L2 → DP na L1 i L2 → wspólna ewaluacja → L3 (perturbacje)
     → opcjonalnie multimodalność (DP vs BC-MLP). Równolegle: PPO (pomiar przepustowości).

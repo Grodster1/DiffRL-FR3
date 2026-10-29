@@ -8,9 +8,9 @@ Section 7 needs a live simulation (`@pytest.mark.sim`) and is skipped when `/clo
 import numpy as np
 import pytest
 
-import franka_rl.config as cfg
-from franka_rl.gym_env import FrankaPickPlaceEnv
-from franka_rl.kinematics import FrankaKinematics
+import franka_task.config as cfg
+from franka_task.gym_env import FrankaPickPlaceEnv
+from franka_task.kinematics import FrankaKinematics
 
 URDF_PATH = "/tmp/fr3.urdf"
 

@@ -1,13 +1,13 @@
 import argparse
 import sys
-import franka_rl.config as cfg
+import franka_task.config as cfg
 from datetime import datetime
 from pathlib import Path
 from stable_baselines3 import SAC
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.save_util import load_from_zip_file
-from franka_rl.gym_env import FrankaPickPlaceEnv, level_tag
+from franka_task.gym_env import FrankaPickPlaceEnv, level_tag
 from franka_rl.run_config import write_run_config
 
 EPISODE_INFO_KEYS = ("is_success", "is_grasped", "dropped", "min_ee_to_cube",
@@ -29,8 +29,7 @@ def make_env(level, seed, monitor_path=None, curriculum_rate = 0.0, transport_wa
 
 class ResumePointCallback(BaseCallback):
     """ Writes a single, fixed-name resume point (model + replay buffer), overwritten
-        in place. SAC cannot be resumed from the policy alone - without the buffer the
-        learner restarts from an empty off-policy dataset """
+        in place. SAC cannot be resumed without the buffer. """
 
     def __init__(self, save_freq, run_dir, verbose=0):
         super().__init__(verbose)

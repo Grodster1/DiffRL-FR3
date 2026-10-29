@@ -10,7 +10,7 @@ from ros_gz_interfaces.msg import Entity
 from ros_gz_interfaces.srv import SetEntityPose
 from builtin_interfaces.msg import Duration
 from geometry_msgs.msg import Pose, Point, Quaternion
-from franka_rl.config import ARM_JOINTS, GRIPPER_JOINTS
+from franka_task.config import ARM_JOINTS, GRIPPER_JOINTS
 
 class SimInterface(Node):
     def __init__(self):

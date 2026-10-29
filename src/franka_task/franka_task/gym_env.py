@@ -3,13 +3,13 @@ import numpy as np
 import tempfile
 import xacro
 import rclpy
-import franka_rl.inverse_kinematics as ik
-import franka_rl.observations as obs
-import franka_rl.config as cfg
-from franka_rl.urdf_utils import strip_finger_mimic
-from franka_rl.kinematics import FrankaKinematics
-from franka_rl.perturbations import sample_displaced_cube
-from franka_rl.ros_bridge import SimInterface
+import franka_task.inverse_kinematics as ik
+import franka_task.observations as obs
+import franka_task.config as cfg
+from franka_task.urdf_utils import strip_finger_mimic
+from franka_task.kinematics import FrankaKinematics
+from franka_task.perturbations import sample_displaced_cube
+from franka_task.ros_bridge import SimInterface
 
 def level_tag(level, perturbation):
     """ Level label for run names: 'L3_displace', or the bare level below L3. """

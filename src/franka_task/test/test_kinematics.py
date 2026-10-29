@@ -1,6 +1,6 @@
 import numpy as np
 import pinocchio as pin
-from franka_rl.kinematics import FrankaKinematics
+from franka_task.kinematics import FrankaKinematics
 
 Q_READY = np.array([0.0, -np.pi/4, 0.0, -3*np.pi/4, 0.0, np.pi/2, np.pi/4])
 

@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-import franka_rl.config as cfg
-from franka_rl.perturbations import sample_displaced_cube
+import franka_task.config as cfg
+from franka_task.perturbations import sample_displaced_cube
 
 BOX = cfg.CUBE_START_XY_BOX
 

@@ -1,6 +1,6 @@
 import pinocchio as pin
 import numpy as np
-import franka_rl.config as cfg
+import franka_task.config as cfg
 
 def pose_error(p_cur, R_cur, p_des, R_des):
     """ Position error as a 6D vector: [Pose error (3), Orientation error (3)].
@@ -20,9 +20,7 @@ def dls_step(J, err6, _lambda = 0.05):
     return dq
     
 def clip_to_joint_limits(q, kin):
-    """ Clipping joint position to available model's range.
-        Added margin because if joint2 reaches its limit it blocks itself
-        and reset() doesn't work."""    
+    """ Clipping joint position to available model's range with added margin."""    
     lower = kin.model.lowerPositionLimit[kin.arm_q_indices]
     upper = kin.model.upperPositionLimit[kin.arm_q_indices]
     return np.clip(q, lower + cfg.CLIP_MARGIN, upper - cfg.CLIP_MARGIN)

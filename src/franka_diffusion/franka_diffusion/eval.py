@@ -7,9 +7,9 @@ import numpy as np
 import torch
 from diffusers.training_utils import EMAModel
 
-from franka_rl import config as cfg
-from franka_rl.gym_env import FrankaPickPlaceEnv
-from franka_rl.evaluate_sac import run_episode, summarize, print_summary
+from franka_task import config as cfg
+from franka_task.gym_env import FrankaPickPlaceEnv
+from franka_task.evaluation import run_episode, summarize, print_summary
 
 from .policy import DiffusionPolicy
 

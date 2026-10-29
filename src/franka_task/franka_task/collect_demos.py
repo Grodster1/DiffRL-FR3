@@ -7,9 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-import franka_rl.config as cfg
-from franka_rl.expert import PHASE_BUDGET, ScriptedExpert
-from franka_rl.gym_env import FrankaPickPlaceEnv, level_tag
+import franka_task.config as cfg
+from franka_task.expert import PHASE_BUDGET, ScriptedExpert
+from franka_task.gym_env import FrankaPickPlaceEnv, level_tag
 
 
 def parse_args():

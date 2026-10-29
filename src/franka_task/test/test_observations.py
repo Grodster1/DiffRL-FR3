@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
-import franka_rl.config as cfg
-from franka_rl.kinematics import FrankaKinematics
-from franka_rl.observations import (
+import franka_task.config as cfg
+from franka_task.kinematics import FrankaKinematics
+from franka_task.observations import (
     build_obs_dict,
     normalize,
 )
